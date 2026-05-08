@@ -1,0 +1,211 @@
+---
+title: "AbortSignal 은 fetch 만 보고 만들지 않았어요"
+description: "fetch 만 쓰다 보면 신호가 어디까지 닿는지 잘 안 보이거든요."
+date: 2026-05-08
+tags: ["JavaScript", "비동기", "AbortController", "React"]
+published: true
+---
+
+Promise 의 [동시성](/posts/promise-concurrency-and-fan-out)과 [비용](/posts/promise-wrapping-microtask-cost)은 자주 짚는데, 정작 '취소' 는 거의 안 다루죠. 저도 한참 동안 `AbortController` 를 'fetch 끊는 거' 로만 알고 살았거든요. 그러다 `addEventListener` 의 옵션에서 `signal` 을 보고 멈칫했어요. 알고 보니 이건 fetch 만 위해 만든 게 아니라, 비동기 작업 일반에 외부 신호로 종료를 알리는 표준 통로였거든요.
+
+## fetch 만 보고 만든 멘탈 모델
+
+[MDN](https://developer.mozilla.org) 의 `AbortController` 페이지를 처음 본 사람의 십중팔구는 fetch 와 짝지어서 알게 돼요. 컨트롤러를 만들고, `signal` 을 fetch 에 넘기고, 필요할 때 `controller.abort()` 부르는 그 흐름이요. 이 절차가 익숙해지면 'AbortController = fetch 취소 도구' 라는 멘탈 모델이 굳어져요.
+
+근데 MDN 의 첫 줄은 fetch 가 아니라 `AbortSignal` 부터 짚어요. "비동기 작업과 통신할 때 쓰는 신호 객체" 가 정의 자리에 있고, fetch 는 그 신호를 받아 쓰는 한 명의 사용자로 등장하거든요.<Cite id="mdn-abortcontroller" /> 컨트롤러는 신호를 들고 있는 손잡이고, 신호는 비동기 작업이 듣고 있는 통로예요. 그 통로를 fetch 가 먼저 받아 쓴 거고, 다른 API 도 같은 통로를 받아 쓰기 시작한 거고요.
+
+`signal` 의 노출 면은 사실 단출해요. `aborted` 불리언, `reason` 값, `throwIfAborted()` 메서드, 그리고 `abort` 이벤트. 호출하는 쪽이 이 넷 중 어느 걸로든 "이미 끝났는지" 만 확인하면 되거든요. 면이 단출해서 새 API 가 받기도 쉬워요. fetch 가 받든, `addEventListener` 가 받든, 스트림이 받든 인터페이스가 같죠.<Cite id="mdn-abortsignal" />
+
+## addEventListener 에 signal 을 넘기면
+
+`removeEventListener` 가 까다롭다는 건 한 번쯤 겪어봤을 거예요. 등록할 때 넘긴 함수 참조와 정확히 같은 참조를 넘겨야 해제되거든요. 그래서 화살표 함수를 인라인으로 등록하면 절대 못 떼요. 변수에 담아 두고, 옵션까지 일치시키고, 컴포넌트가 떠날 때 잊지 말고 다 호출해야 했어요.
+
+`signal` 을 받으면 이 절차가 한 줄로 사라져요. 한 컨트롤러의 `signal` 을 여러 `addEventListener` 에 넘기고, 끝낼 때 `controller.abort()` 한 번만 부르면 다 떨어져 나가거든요.
+
+```js
+const controller = new AbortController();
+
+window.addEventListener("click", onClick, { signal: controller.signal });
+window.addEventListener("scroll", onScroll, { signal: controller.signal });
+document.addEventListener("keydown", onKey, { signal: controller.signal });
+
+// 정리할 때
+controller.abort();
+```
+
+함수 참조를 변수로 들고 있을 필요도 없어요. 인라인 화살표 함수도 그대로 떨어져 나가고요. 무엇보다 "이걸 떼는 걸 깜박했다" 가 줄어요. 한 곳에 한 컨트롤러로 모아 두고, 떠날 때 한 번만 부르니까요.<Cite id="mdn-addeventlistener" />
+
+## 타임아웃은 setTimeout 으로 충분하지 않다
+
+흔한 fetch 타임아웃 패턴은 두 줄짜리예요. `setTimeout` 으로 N 초 뒤에 `controller.abort()` 부르는 거요. 동작은 하는데, 한 가지 자리에서 어긋나요. 백그라운드 탭으로 들어갔거나 페이지가 bfcache (뒤로/앞으로 캐시) 에 누우면 `setTimeout` 의 카운트가 그대로 흘러요. 사용자 입장에선 화면을 보지도 않은 1분이 카운트로 깎이는 셈이에요.
+
+`AbortSignal.timeout(ms)` 는 이 자리를 다르게 다뤄요.
+
+<Callout variant="info">
+"The timeout is based on active rather than elapsed time, and will effectively be paused if the code is running in a suspended worker, or while the document is in a back-forward cache." - MDN
+
+지나간 절대 시간이 아니라 코드가 실제로 깨어 있던 시간으로 카운트해요. 워커가 멈춰 있거나 문서가 bfcache 에 누워 있으면 같이 멈췄다가, 깨어날 때 이어 가거든요.
+
+</Callout>
+
+쓰는 모양도 짧아요. `fetch(url, { signal: AbortSignal.timeout(5000) })` 한 줄이면 끝이에요. 컨트롤러를 따로 만들어 둘 필요가 없거든요.<Cite id="mdn-abortsignal-timeout" /> 다만 reject 됐을 때 던지는 `DOMException` 의 `name` 이 `AbortError` 가 아니라 `TimeoutError` 라는 건 챙겨야 해요. catch 에서 분기할 때 둘을 헷갈리면 타임아웃이 사용자 취소처럼 잡히거든요.
+
+## 여러 신호를 한 신호로 묶기
+
+실전에서 한 fetch 에 붙는 취소 조건은 보통 둘 이상이에요. 사용자가 X 버튼을 눌렀거나, 5초가 지났거나, 부모 컴포넌트가 unmount 되었거나. 매번 setTimeout 과 controller 를 손으로 엮으면 정리가 쉽게 어그러져요.
+
+`AbortSignal.any([])` 는 신호 여러 개를 받아서 "하나라도 abort 되면 같이 abort" 되는 합성 신호를 돌려줘요. 결과 신호의 `reason` 은 가장 먼저 abort 된 신호의 reason 을 그대로 가져오고요. 그래서 catch 에서 "어느 쪽이 끊었는지" 분기하기가 쉬워져요.<Cite id="mdn-abortsignal-any" />
+
+```js
+function searchUsers(query, parentSignal) {
+  const userController = new AbortController();
+  const signal = AbortSignal.any([
+    parentSignal,
+    userController.signal,
+    AbortSignal.timeout(5_000),
+  ]);
+
+  return {
+    promise: fetch(`/api/users?q=${query}`, { signal }),
+    cancel: () => userController.abort(new Error("user cancelled")),
+  };
+}
+```
+
+부모가 정리되든, 사용자가 취소 버튼을 누르든, 5초가 지나든 같은 자리에서 fetch 가 끊겨요. 호출자는 `reason` 을 보고 토스트를 띄울지 조용히 넘길지를 정하면 되고요.
+
+## useEffect cleanup 과 만나는 자리
+
+[React](https://react.dev) 의 `useEffect` 문서는 race 상황을 숨기지 않고 짚어요.<Cite id="react-useeffect" />
+
+<Callout variant="warning">
+"Network responses may arrive in a different order than you sent them." - React Docs
+
+요청을 보낸 순서대로 응답이 오리란 보장이 없거든요. 두 번째 요청이 먼저 도착했는데 첫 번째 응답이 뒤늦게 들어오면, 화면이 옛 데이터로 덮여요.
+
+</Callout>
+
+cleanup 에서 `abort()` 를 부르는 게 이 race 의 가장 깔끔한 답이에요. 이전 effect 의 fetch 가 다음 effect 의 setState 로 끼어드는 길을 끊어 주거든요.
+
+```jsx
+useEffect(() => {
+  const controller = new AbortController();
+
+  fetch(`/users/${id}`, { signal: controller.signal })
+    .then((res) => res.json())
+    .then(setUser)
+    .catch((err) => {
+      if (err.name === "AbortError") return;
+      setError(err);
+    });
+
+  return () => controller.abort();
+}, [id]);
+```
+
+여기서 자주 놓치는 함정이 하나 있어요. 컨트롤러를 `useEffect` 바깥에 한 번만 만들어 두고 effect 안에서 재사용하면 안 돼요. 첫 번째 effect 의 cleanup 이 그 컨트롤러를 abort 하는 순간, 두 번째 effect 가 받는 신호는 이미 abort 상태거든요. fetch 는 보내자마자 즉시 reject 돼요. Strict Mode 의 setup → cleanup → setup 시퀀스가 이 버그를 마운트 직후에 노출해 줘서, 개발 단계에서 잡히는 게 그나마 다행이에요.
+
+## AbortError 는 에러가 아니다
+
+fetch 가 abort 되면 reject 돼요. 그게 정상 흐름인데, 코드에선 일단 `catch` 로 들어오니까 무심코 에러 로깅을 켜면 사용자가 페이지를 떠날 때마다 Sentry 가 울게 돼요. 사용자 취소를 "에러" 로 집계하는 거죠.
+
+reject 의 종류를 나눠서 봐야 해요. fetch 의 catch 에서 마주칠 만한 셋이 있거든요. 사용자나 cleanup 이 abort 한 `AbortError`, `AbortSignal.timeout` 이 끊은 `TimeoutError`, 네트워크 자체가 끊긴 `TypeError` 예요. 앞 둘은 `DOMException` 이고 세 번째는 별도 타입이고요.<Cite id="mdn-fetch" />
+
+```js
+try {
+  const res = await fetch(url, { signal });
+  return await res.json();
+} catch (err) {
+  if (err.name === "AbortError") return;
+  if (err.name === "TimeoutError") {
+    showToast("응답이 너무 늦어요");
+    return;
+  }
+  if (err instanceof TypeError) {
+    reportNetworkIssue(err);
+    return;
+  }
+  throw err;
+}
+```
+
+여기서 트레이드오프 두 개가 갈려요. 첫째는 어디까지 silent 로 받을지예요. 카탈로그에 있는 셋은 조용히 흡수하고, 모르는 건 호출자에게 그대로 throw 해서 보내야 해요. 호출자가 자기 카탈로그를 또 가질 수 있으니, 정보를 통째로 잃지 않으면서 false-positive 로깅도 막을 수 있거든요.
+
+둘째는 한 신호가 어디까지 끊을지예요. `AbortSignal.any` 로 묶은 신호 하나를 fetch 여러 개에 같이 넣어 두면, 한 번 abort 될 때 묶음이 통째로 끊겨요. 부분 결과가 필요한 자리라면 신호를 더 잘게 쪼개야 해요. 한 묶음에 한 신호씩 두고, 결과는 `Promise.allSettled` 로 모아서 fulfilled 만 추리는 식이고요.
+
+두 트레이드오프가 만나는 자리는 검색 미리보기 같은 데에서 잘 보여요. 사용자가 입력하는 동안 여러 쿼리가 병렬로 나가는데, 한 쿼리가 늦거나 끊긴다고 다른 결과까지 잃을 이유는 없거든요.
+
+```js
+async function previewSearch(queries, parentSignal) {
+  const tasks = queries.map((q) => {
+    const signal = AbortSignal.any([
+      parentSignal,
+      AbortSignal.timeout(2_000),
+    ]);
+
+    return fetch(`/api/search?q=${q}`, { signal })
+      .then((res) => res.json())
+      .catch((err) => {
+        if (err.name === "AbortError") return null;
+        if (err.name === "TimeoutError") return null;
+        throw err;
+      });
+  });
+
+  const results = await Promise.allSettled(tasks);
+  return results
+    .filter((r) => r.status === "fulfilled" && r.value !== null)
+    .map((r) => r.value);
+}
+```
+
+각 쿼리에 자기 신호를 따로 묶어 줬더니, 한 쿼리가 2초를 넘겨 끊겨도 옆 쿼리는 계속 가요. 사용자 취소(`AbortError`) 와 타임아웃(`TimeoutError`) 은 `null` 로 흡수해서 결과에서 빠지고, 모르는 에러만 위로 던지거든요.
+
+동시성이 같이 보내는 일이고 비용이 한 틱이 깎이는 일이라면, 취소는 보낸 일이 끝나기 전에 멈출 수 있는 일이에요. fetch 너머에서 `signal` 이 통로 노릇을 하는 동안, 이벤트 리스너든 타이머든 같은 모양으로 다룰 수 있고요. 라이브러리가 이 통로를 자기 안에서 어떻게 쓰는지는 [SWR 과 TanStack Query 의 철학](/posts/swr-vs-tanstack-query-philosophy) 글에서 한 번 다뤘어요.
+
+<References
+  items={[
+    {
+      id: "mdn-abortcontroller",
+      title: "MDN - AbortController",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/AbortController",
+      description: "컨트롤러와 signal 의 관계, abort 의 적용 범위 확인",
+    },
+    {
+      id: "mdn-abortsignal",
+      title: "MDN - AbortSignal",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal",
+      description: "aborted, reason, throwIfAborted 와 정적 메서드 정리",
+    },
+    {
+      id: "mdn-addeventlistener",
+      title: "MDN - EventTarget.addEventListener",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener",
+      description: "signal 옵션으로 리스너 자동 해제하는 방식",
+    },
+    {
+      id: "mdn-abortsignal-timeout",
+      title: "MDN - AbortSignal.timeout",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static",
+      description: "active time 기반 타임아웃과 TimeoutError 의 의미",
+    },
+    {
+      id: "mdn-abortsignal-any",
+      title: "MDN - AbortSignal.any",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static",
+      description: "여러 신호를 합성하는 방법과 reason 전달",
+    },
+    {
+      id: "mdn-fetch",
+      title: "MDN - Window.fetch",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Window/fetch",
+      description: "fetch 의 reject 종류와 AbortError 처리",
+    },
+    {
+      id: "react-useeffect",
+      title: "React Docs - useEffect",
+      href: "https://react.dev/reference/react/useEffect",
+      description: "cleanup 과 race condition 의 공식 권장 패턴",
+    },
+  ]}
+/>
