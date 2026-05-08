@@ -1,0 +1,339 @@
+---
+title: "또 모달 만드시려고요?"
+description: "매번 새로 만들던 모달, 브라우저가 어디까지 처리해주는지 다시 점검해봐요."
+date: 2026-05-08
+tags: ["HTML", "웹 표준", "접근성", "Popover API"]
+published: true
+---
+
+"또 모달 만들어야 해요?"
+
+팀에 합류하면 비슷한 광경을 자주 봐요. 디자인 시스템에 Modal 컴포넌트가 이미 있는데, 누군가 새 페이지에서 슬쩍 다시 만들고 있어요. "그게 z-index 가 안 먹혀서요." "포커스가 자꾸 뒤로 빠져서요." "ESC 안 듣는다고 QA 가 코멘트 달았어요."
+
+이상하죠. 모달은 웹에서 가장 흔한 컴포넌트인데, 매번 누군가 새로 만들고 있어요. 브라우저는 그동안 뭐 했나 싶고요. 사실 그동안 채워지고 있었어요. 이제는 모든 메이저 브라우저에서 안정적으로 쓸 수 있고요.
+
+## 모달, 또 만드시려고요?
+
+모달이 표준에 빠져 있던 시절에 우리가 직접 만들어야 했던 게 뭐였는지 떠올려보면 길어요. 화면 위에 띄우려면 z-index 사다리를 쌓고요, 뒤 배경에는 클릭이 안 가게 막 div 를 깔고요, Tab 누르면 바깥 폼으로 빠지지 않게 focus trap 을 짜고요, ESC 닫기와 첫 포커스, 닫고 나서 호출 버튼으로 포커스 복귀까지 다 손으로 처리했죠.
+
+웹 컴포넌트 중에 이렇게 흔한데 이렇게 빠뜨리기 쉬운 게 또 있나 싶어요. [Popover API 를 소개한 공식 글](https://developer.chrome.com/blog/introducing-popover-api) 에도 비슷한 이야기가 나와요.<Cite id="chrome-popover" />
+
+<Callout variant="warning">
+"Despite how prevalent these components are, building them in browsers is still surprisingly cumbersome." - Chrome Developers
+
+이렇게 흔한데 직접 만들기는 여전히 까다로운 편이라는 말인데, 이 한 줄이 지난 10년 모달의 현실이었어요.
+
+</Callout>
+
+디자인 시스템 운영자라면 [디자인 시스템의 세 축 글](/posts/team-design-system-guide) 에서 다룬 "토큰·계층·운영" 의 운영 측면에서도 이 문제가 보여요. 핵심 컴포넌트 하나가 표준으로 흡수될 수 있다면, 운영 부담 자체가 달라지니까요.
+
+## z-index 9999가 못 풀던 문제
+
+처음 마주치는 벽은 z-index 예요. 헤더에 1000, 사이드바에 1500, 모달에 9999 식으로 사다리를 쌓다 보면 어딘가가 무너져요. 그 이유는 [지난 글에서 정리한](/posts/css-stacking-context) stacking context 인데, 한 줄로 말하면 "z-index 는 각자의 작은 세계 안에서만 유효" 하다는 거예요. 부모가 새 stacking context 를 만든 순간 자식의 9999 는 그 세계 바깥으로 못 나가요.
+
+브라우저는 이 문제를 z-index 숫자를 더 키우는 방향이 아니라 **다른 레이어를 따로 두는** 방향으로 풀었어요. **top layer** 라고 부르는 별도 렌더링 레이어가 그것이죠. 뷰포트 전체를 덮는 레이어가 일반 문서 흐름과 별개로 존재하고, 거기에 들어간 요소는 z-index 와 무관하게 모든 콘텐츠 위에 올라와요.
+
+여기서 짚어둘 게 있어요. top layer 는 우리가 코드로 직접 조작할 수 있는 개념이 아니에요. MDN 의 한 줄이 그걸 분명히 짚어줘요.<Cite id="mdn-top-layer" />
+
+<Callout variant="info">
+"Note that the top layer is an internal browser concept and cannot be directly manipulated from code." - MDN
+
+브라우저 내부 개념이라 우리는 그 안의 요소를 styling 할 수만 있고, 레이어 자체를 늘리거나 줄일 수 없어요. 모달과 popover, 풀스크린 요소만 들어가요.
+
+</Callout>
+
+들어가는 자격이 있는 건 세 가지뿐이에요. `requestFullscreen()` 으로 띄운 풀스크린 요소, `showModal()` 로 연 모달 다이얼로그, `showPopover()` 로 연 popover. 이 셋만 top layer 의 입장권을 가져요.
+
+이게 왜 큰 변화인지는 코드로 보면 바로 와닿아요.
+
+<CodePlayground
+  template="react"
+  showPreview={true}
+  code={`function TopLayerDemo() {
+    const dialogRef = React.useRef(null);
+
+    return (
+      <div className="stage">
+        <header className="fake-header">z-index 1000인 가짜 헤더</header>
+        <button type="button" onClick={() => dialogRef.current?.showModal()}>
+          모달 열기
+        </button>
+        <dialog ref={dialogRef} className="standard-dialog">
+          <p>z-index 어디에도 손대지 않았어요.</p>
+          <button type="button" onClick={() => dialogRef.current?.close()}>
+            닫기
+          </button>
+        </dialog>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    position: relative;
+    padding: 24px;
+  }
+
+  .fake-header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    background: oklch(70% 0.16 30);
+    color: white;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+  }
+
+  .standard-dialog {
+    border: 1px solid oklch(80% 0 0);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .standard-dialog::backdrop {
+    background: oklch(0% 0 0 / 0.4);
+  }`}
+/>
+
+`<dialog>` 자체에 z-index 를 한 번도 쓰지 않았어요. `showModal()` 한 줄이 요소를 top layer 로 승격시키고, 헤더가 9999 든 99999 든 위에 그려져요. WHATWG HTML 표준의 `showModal` 알고리즘에도 "add an element to the top layer" 단계가 명시되어 있어서, 이건 구현 디테일이 아니라 스펙으로 보장되는 동작이에요.
+
+## focus trap을 직접 짜본 사람의 목록
+
+z-index 가 첫 번째 벽이라면, 두 번째 벽은 키보드와 포커스예요. 모달을 띄운 다음에 Tab 을 누르면 어디로 가야 할까요. 직접 만들어본 적 있다면 손가락이 먼저 기억할 거예요. 첫 번째 입력에 포커스를 넣고, Tab 이 마지막 버튼을 넘어가면 다시 첫 번째로, Shift+Tab 이 첫 번째에서 거꾸로 가면 마지막으로. 모달이 닫히면 호출했던 버튼으로 포커스를 되돌려놓고요.
+
+이걸 손으로 짜본 사람이라면 [접근성 글](/posts/web-accessibility-why-and-how) 에서 언급한 "키보드만으로 페이지를 써본 경험" 이 머릿속에 따라붙을 거예요. 작은 디테일 하나만 빠져도 키보드 사용자에게는 모달이 미로가 돼요.
+
+`showModal()` 의 모달 의미는 한 줄이에요. **바깥이 inert 가 돼요.** MDN 도 그 점을 핵심으로 짚어요.<Cite id="mdn-html-dialog" />
+
+<Callout variant="info">
+"Everything outside the dialog is inert with interactions outside the dialog being blocked." - MDN HTMLDialogElement
+
+다이얼로그 바깥의 모든 게 비활성 영역이 돼요. 클릭도 안 가고, Tab 도 못 가고, 스크린 리더의 접근성 트리에서도 빠지고요.
+
+</Callout>
+
+`inert` 라는 전역 속성은 이 동작을 표준화한 결과물이에요. 어떤 영역에 `inert` 만 달면 그 안의 요소는 포커스도, 클릭도, 텍스트 선택도, 페이지 내 검색도, 접근성 트리 노출도 모두 막혀요. 2023년 4월부터 모든 메이저 브라우저에서 안정적으로 쓸 수 있고요. 직접 만들던 focus trap 의 절반은 inert 한 줄이 끝낸 셈이죠.<Cite id="mdn-inert" />
+
+`showModal()` 은 여기에 더해 [W3C 의 APG Modal Dialog Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/) 이 권하는 동작을 자동으로 처리해줘요. 첫 포커스를 다이얼로그 안으로 옮기고, 닫힐 때 호출 요소로 포커스를 복귀시키고, ESC 로 닫는 것까지요. 우리는 의미 있는 마크업과 콘텐츠만 짜고, 동작은 표준에 맡겨요.<Cite id="w3c-apg-dialog" />
+
+`show()` 와 `showModal()` 의 차이를 한 화면에서 느껴보면 감이 와요.
+
+<CodePlayground
+  template="react"
+  showPreview={true}
+  code={`function ModalVsNon() {
+    const modalRef = React.useRef(null);
+    const nonModalRef = React.useRef(null);
+
+    return (
+      <div className="vs-stage">
+        <input className="bg-input" placeholder="바깥 입력 (모달이면 못 누름)" />
+        <div className="vs-buttons">
+          <button type="button" onClick={() => modalRef.current?.showModal()}>
+            showModal 로 열기
+          </button>
+          <button type="button" onClick={() => nonModalRef.current?.show()}>
+            show 로 열기
+          </button>
+        </div>
+        <dialog ref={modalRef}>
+          <p>모달이에요. 바깥 입력은 inert 가 돼요. ESC 도 동작해요.</p>
+          <button type="button" onClick={() => modalRef.current?.close()}>
+            닫기
+          </button>
+        </dialog>
+        <dialog ref={nonModalRef}>
+          <p>비모달이에요. 바깥 입력에 여전히 포커스가 가요.</p>
+          <button type="button" onClick={() => nonModalRef.current?.close()}>
+            닫기
+          </button>
+        </dialog>
+      </div>
+    );
+  }`}
+  css={`.vs-stage {
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+  }
+
+  .bg-input {
+    padding: 8px;
+    width: 100%;
+  }
+
+  .vs-buttons {
+    display: flex;
+    gap: 8px;
+  }
+
+  dialog {
+    padding: 16px;
+    border-radius: 8px;
+  }`}
+/>
+
+같은 `<dialog>` 인데 여는 메서드만 다른 거예요. `showModal()` 은 바깥 입력에 클릭조차 안 가고, ESC 가 듣고, 자동으로 `aria-modal="true"` 가 붙어요. `show()` 는 비모달이라 바깥에 영향 없고 ESC 도 안 들어요. 모달이 필요하면 `showModal()` 하나면 충분해요.
+
+## 닫는 방법이 두 갈래로 갈렸다
+
+여기서 자연스러운 질문이 생겨요. "그럼 popover 는 또 왜 따로 만든 거예요?" 답은 닫는 방법에 있어요.
+
+모달은 명시적으로 닫는 게 본질이에요. 사용자가 결정을 내려야 다음으로 넘어가니까요. 결제 확인, 파일 삭제 같은 흐름에서 바깥을 잘못 한 번 클릭했다고 닫혀버리면 곤란하죠. 그래서 `showModal()` 은 ESC 와 명시적 close 버튼이 기본이에요.
+
+반면 메뉴, 툴팁, 토스트, 자동완성 같은 popover 류는 정반대예요. 다른 데를 클릭하면 알아서 사라지는 게 자연스럽고요. 이걸 표준 용어로 **light dismiss** 라고 불러요. WHATWG 가 알고리즘 레벨에서 이 동작을 정의해놨어요.<Cite id="whatwg-html" />
+
+<Callout variant="info">
+"Light dismiss means that clicking outside of a dialog element whose closedby attribute is in the Any state will close the dialog element." - WHATWG HTML
+
+바깥 어디든 클릭하면 자동으로 닫히는 동작이에요. 직접 짜려면 외부 클릭 좌표를 추적하는 useOutsideClick 훅을 또 만들어야 했죠.
+
+</Callout>
+
+Popover API 는 이 두 닫기 방식을 `popover` 속성의 세 가지 상태로 분리했어요. `auto`, `manual`, `hint` 가 그것이에요.
+
+`auto` 는 light dismiss 가 켜진 상태예요. 외부 클릭, ESC, 다른 auto popover 가 열림으로 닫혀요. 한 번에 보통 하나만 떠 있고요. 일반적인 메뉴, 자동완성, 툴팁 같은 게 여기 해당해요.
+
+`manual` 은 정반대예요. 외부 클릭이나 ESC 로는 안 닫혀요. 명시적으로 버튼이나 JS 로만 닫을 수 있고요. 동시에 여러 개를 띄울 수도 있어요. 알림, 코치마크, 영구적 컨트롤 패널 같은 데에 쓰여요.
+
+`hint` 는 그 사이예요. 다른 auto 를 닫지는 않지만, 다른 hint 끼리는 서로 닫아요. 마우스 호버나 포커스 같은 비명시적 트리거로 띄우는 작은 안내에 어울려요.<Cite id="mdn-popover-attr" />
+
+차이를 직접 비교해보면 의미가 분명해져요.
+
+<CodePlayground
+  template="react"
+  showPreview={true}
+  code={`function PopoverModes() {
+    return (
+      <div className="popover-stage">
+        <div>
+          <button type="button" popovertarget="auto-pop">
+            auto 열기
+          </button>
+          <div id="auto-pop" popover="auto" className="pop">
+            <p>아무 데나 누르면 닫혀요.</p>
+          </div>
+        </div>
+        <div>
+          <button type="button" popovertarget="manual-pop">
+            manual 열기
+          </button>
+          <div id="manual-pop" popover="manual" className="pop">
+            <p>닫기 버튼을 눌러야만 닫혀요.</p>
+            <button
+              type="button"
+              popovertarget="manual-pop"
+              popovertargetaction="hide"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }`}
+  css={`.popover-stage {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .pop {
+    border: 1px solid oklch(80% 0 0);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 8px;
+  }`}
+/>
+
+JS 가 한 줄도 없는 게 포인트예요. `popovertarget` 속성만으로 토글이 되고, light dismiss 는 브라우저가 알아서 처리하고, top layer 도 자동으로 들어가요. 다만 한 가지 짚어둘 게 있어요. Popover API 로 만든 popover 는 항상 비모달이에요. 모달이 필요하면 `<dialog popover>` 처럼 dialog 와 결합하거나, 그냥 `<dialog>` 의 `showModal()` 을 써야 해요.<Cite id="mdn-popover-api" />
+
+## Radix와 Headless UI는 사라질까
+
+여기까지 읽고 나면 자연스러운 질문이 떠올라요. "그럼 [Radix UI](https://www.radix-ui.com) 나 [Headless UI](https://headlessui.com) 같은 라이브러리는 사라지는 건가요?" 짧게는 아니에요. 영역이 겹치되 다르거든요.
+
+표준이 가져간 자리는 명확해요. top layer 로 z-index 사다리를 끝냈고, inert 와 `showModal()` 로 focus trap 의 절반을 처리했고, light dismiss 와 `closedby` 속성(ESC 와 외부 클릭 닫기를 켜고 끄는 속성)으로 닫기 정책을 명시화했고, `aria-modal` 자동 부여로 ARIA 셋업의 한 단계를 줄였어요. 직접 만들던 모달 코드의 무거운 부분은 거의 표준 안으로 들어왔다고 봐도 돼요.<Cite id="mdn-dialog" />
+
+다만 라이브러리가 여전히 메우는 영역도 있어요. popover 의 위치 자동 계산이 그 예예요. 트리거 버튼 옆에 띄우되 화면 끝을 만나면 반대 방향으로 뒤집고, 스크롤하면 따라오는 동작은 표준 popover 만으론 부족해서 [floating-ui](https://floating-ui.com) 같은 보조가 필요해요. Anchor Positioning 표준이 이를 채우는 중인데 안정 지원까지는 아직 멀어요.
+
+애니메이션 훅도 비슷해요. 열리고 닫히는 transition 을 React 라이프사이클과 깔끔히 맞물리는 건 라이브러리의 영역이고, controlled / uncontrolled 패턴, 키보드 단축키 커스터마이징, 폼 통합 같은 React 측 상태 관리도 마찬가지예요.
+
+<Callout variant="tip">
+**옮길지 결정할 때 보는 자리**
+
+`closedby` 속성은 비교적 신규라 모든 브라우저에서 안정적으로 쓰지는 못해요. 명시적 닫기 정책이 필요한 모달이 많다면 폴리필이나 라이브러리가 안전.
+
+popover 위치 계산이 핵심이라면 floating-ui 같은 보조는 당분간 필요.
+
+단순한 다이얼로그(확인/취소, 알림)는 `<dialog>` 한 줄로 옮겨도 잘 동작.
+
+</Callout>
+
+[디자인 시스템 글](/posts/team-design-system-guide) 에서 이야기했던 "축 3, 팀 운영 모델" 의 결정이 여기서 다시 등장해요. 내부에서 계속 깎을지, 표준으로 갈아탈지, 라이브러리에 맡길지를 컴포넌트마다 따로 판단하는 거예요. 모달과 popover 의 답은 시점에 따라 다를 수 있어요. 다만 적어도 z-index 사다리와 손으로 짠 focus trap 은, 이제 새 코드에서는 제거 후보예요.
+
+매번 새로 만들던 모달이 표준 안으로 옮겨오는 데 10년이 넘게 걸렸어요. 새 화면에서 모달이 필요할 때 디자인 시스템 컴포넌트를 다시 깎기 전에, `<dialog>` 나 popover 부터 한 번 시도해보는 게 출발점이 될 수 있어요. 빠진 디테일은 라이브러리가 채우고, 채워진 디테일은 브라우저에 맡기고요.
+
+<References
+  items={[
+    {
+      id: "mdn-dialog",
+      title: "MDN - HTML dialog 요소",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/dialog",
+      description:
+        "showModal/show, top layer 승격, ::backdrop, closedby 속성 정리",
+    },
+    {
+      id: "mdn-html-dialog",
+      title: "MDN - HTMLDialogElement",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/HTMLDialogElement",
+      description:
+        "showModal 의 inert 동작과 cancel 이벤트, requestClose 메서드",
+    },
+    {
+      id: "mdn-popover-api",
+      title: "MDN - Popover API",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Popover_API",
+      description:
+        "Popover 가 항상 비모달이라는 점, dialog 와 결합 사용 가이드",
+    },
+    {
+      id: "mdn-popover-attr",
+      title: "MDN - HTML popover 전역 속성",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/popover",
+      description:
+        "auto / manual / hint 세 상태와 light dismiss 동작 차이",
+    },
+    {
+      id: "whatwg-html",
+      title: "WHATWG HTML - Interactive elements",
+      href: "https://html.spec.whatwg.org/multipage/interactive-elements.html",
+      description:
+        "showModal 알고리즘의 top layer 승격과 light dismiss 정의",
+    },
+    {
+      id: "mdn-inert",
+      title: "MDN - HTML inert 전역 속성",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/inert",
+      description:
+        "inert 가 막는 동작과 dialog 모달의 inert 상속 예외",
+    },
+    {
+      id: "mdn-top-layer",
+      title: "MDN - Top layer 용어집",
+      href: "https://developer.mozilla.org/en-US/docs/Glossary/Top_layer",
+      description:
+        "z-index 와 별개의 렌더링 레이어 정의, 진입 자격 세 가지",
+    },
+    {
+      id: "w3c-apg-dialog",
+      title: "W3C ARIA APG - Modal Dialog Pattern",
+      href: "https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/",
+      description:
+        "초기 포커스, focus trap, 포커스 복귀 등 모달 패턴 권고",
+    },
+    {
+      id: "chrome-popover",
+      title: "Chrome Developers - Introducing the Popover API",
+      href: "https://developer.chrome.com/blog/introducing-popover-api",
+      description: "Popover API 도입 동기와 dialog 와의 핵심 차이",
+    },
+  ]}
+/>
