@@ -1,0 +1,176 @@
+---
+title: "children 으로 받을까, prop 으로 받을까"
+description: "두 패턴이 비슷해 보일 때, 어디서 갈리는지 짚어볼게요."
+date: 2026-05-09
+tags: ["React", "컴포넌트 설계", "합성", "패턴"]
+published: true
+---
+
+컴포넌트를 만들다 보면 매번 한 번씩 멈추는 자리가 있어요. "이건 children 으로 받지, 아니 prop 으로 받지." 손가락이 키보드 위에서 잠깐 머무르는 그 자리요. [모달](/posts/dialog-and-popover-modal-as-standard) 같은 컴포넌트를 만들다가도, List 같은 컴포넌트를 만들다가도 똑같이 막혀요. 비슷한 일을 하는 것 같은데 막상 고르려면 헷갈리거든요.
+
+## children 은 구멍을 만든다
+
+children 은 사실 prop 의 한 종류예요. 다만 전달 방식이 좀 달라요. JSX 태그 안에 끼워 넣은 콘텐츠가 부모 컴포넌트에게 `children` 이라는 prop 으로 흘러들어가요. 명시적으로 attribute 를 적지 않아도 되고요.
+
+[React 공식 문서](https://react.dev/learn/passing-props-to-a-component) 의 표현이 인상적이에요.<Cite id="react-passing-props" />
+
+<Callout variant="info">
+"You can think of a component with a `children` prop as having a 'hole' that can be 'filled in' by its parent components with arbitrary JSX." - React docs
+
+children 으로 받는 컴포넌트는 "구멍" 이 뚫려 있는 거예요. 부모가 그 구멍에 아무 JSX 든 끼워 넣어 채워주는 거고요.
+
+</Callout>
+
+이 메타포가 children 이 가장 어울리는 자리를 알려줘요. Card, Section, Modal 처럼 안에 뭐가 들어올지 부모만 정하면 되는 컨테이너가 그 자리거든요. 카드 컴포넌트가 "내부에 뭐가 들어오든 상관없으니, 너희가 채워" 하고 손을 떼는 식이죠.
+
+```tsx
+function Card({ children }: { children: React.ReactNode }) {
+  return <div className="card">{children}</div>;
+}
+
+<Card>
+  <h3>제목</h3>
+  <p>본문</p>
+</Card>
+```
+
+[화면 모양과 가까운 코드](/posts/screen-code-one-to-one-mapping) 가 자연스럽게 따라오는 패턴이기도 해요. 카드가 카드처럼 보이고, 그 안에 뭐가 들어가는지가 호출부에 그대로 드러나니까요.
+
+## 구멍만으론 안 닿을 때
+
+children 으로 받는 게 만능은 아니에요. 부모 컴포넌트 안쪽 상태를 자식에게 넘겨야 하는 순간이 와요.
+
+리스트 컴포넌트가 각 행에 하이라이트 상태를 칠하고 싶다고 해볼게요. 어느 행이 하이라이트인지는 List 가 안에서 계산해요. 근데 그 결과물을 어떻게 그릴지는 호출부가 정하고 싶죠. 카드일 수도 있고 행일 수도 있고요.
+
+children 만으로는 이게 안 돼요. 미리 만들어 둔 JSX 를 넘기는 방식이라, List 안에서 계산한 `isHighlighted` 같은 값을 자식 위치까지 흘려보낼 통로가 없거든요.
+
+React 공식 문서가 [`cloneElement`](https://react.dev/reference/react/cloneElement) 항목에서 짚는 한 줄이 있어요.<Cite id="react-clone-element" />
+
+<Callout variant="warning">
+"Cloning children makes it hard to tell how the data flows through your app." - React docs
+
+자식을 복제해서 몰래 prop 을 끼워 넣는 방식은 데이터가 어디서 와서 어디로 가는지 추적이 어려워요.
+
+</Callout>
+
+그 자리에서 공식 문서가 권장하는 게 render props 예요. 같은 페이지에서 "more explicit" 하다고 짚고 있죠. 데이터가 어디서 흘러오는지 호출부에 그대로 드러나니까요.
+
+## 함수를 prop 으로 건네는 길
+
+render props 의 정의는 짧아요. 자식이 들어갈 자리에 JSX 대신 "함수" 를 두는 거예요.<Cite id="react-render-props" />
+
+<Callout variant="info">
+"A component with a render prop takes a function that returns a React element and calls it instead of implementing its own render logic." - React docs
+
+함수를 prop 으로 받아서, 컴포넌트가 직접 렌더하는 대신 그 함수를 호출해 결과를 받아 그려요.
+
+</Callout>
+
+리스트 예시로 돌아가면 이렇게 풀려요.
+
+```tsx
+function List<T>({
+  items,
+  activeIndex,
+  renderItem,
+}: {
+  items: T[];
+  activeIndex: number;
+  renderItem: (item: T, isHighlighted: boolean) => React.ReactNode;
+}) {
+  return (
+    <ul>
+      {items.map((item, i) => (
+        <li key={i}>{renderItem(item, i === activeIndex)}</li>
+      ))}
+    </ul>
+  );
+}
+
+<List
+  items={products}
+  activeIndex={hoverIndex}
+  renderItem={(product, isHighlighted) => (
+    <Row product={product} highlighted={isHighlighted} />
+  )}
+/>
+```
+
+`isHighlighted` 가 어디서 왔는지 호출부에서 또렷하게 보여요. List 안쪽에서 계산해서, 함수의 인자로 넘겨주고, 호출부가 그 인자를 받아 자식 자리에 꽂아요. 흐름이 한 방향으로 곧게 나 있죠.
+
+이름이 꼭 `renderItem` 일 필요는 없어요. children 자체를 함수로 받는 패턴 (`children-as-a-function`) 도 같은 발상이에요. 통로의 이름이 다를 뿐, 함수를 넘겨 부모 상태를 끌어쓴다는 본질은 그대로예요.
+
+## 그 자리를 hooks 가 가져갔다
+
+여기까지 보면 render props 만 있으면 못 풀 게 없어 보일 수도 있어요. 근데 React 공식 legacy 문서를 펼치면 이런 한 줄이 적혀 있어요.<Cite id="react-render-props" />
+
+<Callout variant="warning">
+"For many cases, they have been replaced by custom Hooks." - React docs
+
+많은 경우에 render props 의 자리가 커스텀 훅으로 옮겨갔어요.
+
+</Callout>
+
+마우스 위치를 추적하는 컴포넌트를 render props 로 만들던 시절이 있었어요. `<Mouse render={({ x, y }) => ...} />` 같은 모양이었죠. 같은 일을 지금은 `useMouse()` 훅으로 풀어요. 함수 컴포넌트 안에서 직접 좌표를 받아 쓰는 거죠.
+
+훅이 나오면서 render props 가 차지하던 공간이 좁아졌어요. "부모가 가진 데이터를 자식에게 흘려야 한다" 는 문제 자체가 컴포넌트 합성 문제가 아니라 로직 재사용 문제로 옮겨간 거예요. 훅은 그 자리에 더 잘 맞아요. 컴포넌트 트리를 바꾸지 않고 로직만 가져다 쓸 수 있고, 타입도 단순해지거든요.
+
+그렇다고 render props 가 죽은 건 아니에요. 자식 위치에 꽂힐 JSX 자체가 부모 상태에 따라 달라져야 할 때, 그러니까 데이터가 아니라 "자식 JSX 를 그리는 책임" 을 호출부에 위임하고 싶을 때는 여전히 render props 가 자리예요.
+
+## 그래서 어느 쪽을 고르나
+
+세 갈래로 정리해 볼게요. 결정 순서가 있어요.
+
+먼저 children. 자식 위치에 무엇을 둘지만 호출부가 정하면 되면, 다른 거 볼 것 없이 children 이에요. 부모는 자식의 내부를 알 필요가 없고, 호출부는 평범한 JSX 를 그대로 적으면 돼요. 가장 단순한 통로고, 가장 자주 맞는 통로예요.
+
+그 다음으로 render props. children 이 부족할 때, 정확히는 부모가 가진 상태를 자식 JSX 의 일부로 흘려야 할 때만 들어와요. 함수가 받는 인자가 곧 통로의 명세가 되거든요.
+
+마지막으로 custom hook. 흘리려는 게 JSX 가 아니라 로직이라면, 그 자리는 훅이에요. 컴포넌트 트리를 깎지 않고 함수 컴포넌트 안에서 바로 가져다 쓸 수 있어요.
+
+세 갈래는 사실 같은 질문을 단계적으로 좁히는 거예요. 자식 자리에 뭐가 들어가는지 먼저 보고, 그 자리에 부모 상태가 필요한지 보고, 마지막으로 필요한 게 JSX 인지 로직인지 보는 식으로요.
+
+## 거슬러 올라가는 길
+
+마지막으로 한 발만 더 들어가 볼게요. children 으로 받는 합성 패턴은 사실 prop drilling 을 푸는 가장 처음 도구이기도 해요. React 공식 문서가 Context 를 권하기 전에 한 단계 더 단순한 답을 먼저 짚어요.<Cite id="react-context" />
+
+<Callout variant="info">
+"If you pass some data through many layers of intermediate components that don't use that data (and only pass it further down), this often means that you forgot to extract some components along the way." - React docs
+
+데이터를 쓰지 않으면서 그저 통과만 시키는 중간 컴포넌트가 길게 줄지어 있다면, 그건 컴포넌트를 뽑는 걸 잊었다는 신호예요.
+
+</Callout>
+
+`<Layout posts={posts} />` 처럼 `posts` 를 쓰지도 않는 Layout 에 prop 을 흘려보내는 대신, `<Layout><Posts posts={posts} /></Layout>` 으로 바꾸면 데이터를 쓰는 자리 (Posts) 와 데이터를 가진 자리가 가까워져요. children 이 그 사이를 그냥 통과시켜주는 통로가 되고요.
+
+이게 [디자인 시스템에서 합성 패턴이 자주 등장하는 이유](/posts/compound-pattern-tradeoff-choice) 와도 이어져요. `Dialog.Root` `Dialog.Trigger` `Dialog.Content` 같은 dot-notation 합성도 결국 각 부품이 자기 위치에서 자기 일을 한다는 children 합성 사고의 연장선이에요. prop 을 길게 흘리는 대신, 컴포넌트를 잘게 뽑아 호출부에서 조립하는 거죠.
+
+children 으로 받을지 prop 으로 받을지 망설일 때 떠올리면 좋은 한 문장은 이거예요. **자식 자리에 무엇을 둘지** 만 정하면 children, **부모의 안쪽 상태** 까지 자식이 알아야 하면 render props. 둘이 다르게 보이지만, 같은 질문을 한 단계씩 좁힌 답일 뿐이에요.
+
+<References
+  items={[
+    {
+      id: "react-passing-props",
+      title: "React - Passing Props to a Component",
+      href: "https://react.dev/learn/passing-props-to-a-component",
+      description: "children prop 의 정의와 'hole' 메타포 인용",
+    },
+    {
+      id: "react-render-props",
+      title: "React - Render Props (Legacy)",
+      href: "https://legacy.reactjs.org/docs/render-props.html",
+      description: "render props 패턴 정의와 hooks 로 대체된 흐름",
+    },
+    {
+      id: "react-clone-element",
+      title: "React - cloneElement Reference",
+      href: "https://react.dev/reference/react/cloneElement",
+      description: "render props 가 cloneElement 보다 명시적인 이유",
+    },
+    {
+      id: "react-context",
+      title: "React - Passing Data Deeply with Context",
+      href: "https://react.dev/learn/passing-data-deeply-with-context",
+      description: "prop drilling 진단과 컴포넌트 추출 권장",
+    },
+  ]}
+/>
