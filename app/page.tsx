@@ -3,6 +3,7 @@ import { posts } from "#site/content";
 import { Hero } from "@/components/ui/hero";
 import { type PostEntry, type PostItem, type SeriesGroup } from "@/components/ui/post-list";
 import { PostGrid } from "@/components/ui/post-grid";
+import { RecommendBubble, type RecommendCandidate } from "@/components/ui/recommend-bubble";
 import { siteConfig, SITE_URL } from "@/lib/site";
 
 const POPULAR_TAG_MIN_COUNT = 3;
@@ -84,6 +85,12 @@ export default function Home() {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .map(toPostItem);
 
+  const recommendCandidates: RecommendCandidate[] = publishedFlat.map((p) => ({
+    slug: p.slug,
+    title: p.title,
+    description: p.description,
+  }));
+
   const websiteJsonLd = {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -156,6 +163,7 @@ export default function Home() {
           )}
         </section>
       </div>
+      <RecommendBubble posts={recommendCandidates} />
     </>
   );
 }
