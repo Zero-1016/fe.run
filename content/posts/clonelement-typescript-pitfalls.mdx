@@ -1,0 +1,131 @@
+---
+title: "cloneElement 가 자꾸 as any 를 부르던 이유"
+description: "children 에 props 를 꽂으려는 순간, React 19 의 unknown 이 막아서요."
+date: 2026-05-09
+tags: ["React", "TypeScript", "cloneElement", "children", "타입 시스템"]
+published: true
+---
+
+처음 Tabs 컴포넌트를 만들 때, 자식 Tab 마다 활성 여부를 어떻게 내려줄지 고민했어요. children 으로 받았으니 각각에 active prop 을 슬쩍 꽂아주면 될 것 같았죠. 그래서 손이 갔던 게 cloneElement 였어요. 한동안 잘 굴러갔는데, React 19 로 올린 어느 날 갑자기 빨간 줄이 떴거든요. as any 로 덮으면서 "왜 이게 이제 와서 안 되지" 싶었던 그 자리부터 다시 봐요.
+
+## 익숙한 패턴, children 에 props 를 주입하기
+
+cloneElement 를 처음 보면 묘하게 유혹적이에요. 부모가 받은 children 을 한 번 복제해서, 거기에 내 prop 을 슬쩍 얹어 내보내는 거죠. Tabs 같은 합성 컴포넌트에서 자주 쓰이는 패턴이에요.
+
+```tsx
+function Tabs({
+  activeId,
+  children,
+}: {
+  activeId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div role="tablist">
+      {React.Children.map(children, (child) => {
+        if (!React.isValidElement(child)) return child;
+        // child 는 ReactElement 로 좁혀졌지만, child.props 의 모양은 여기서 보이지 않아요
+        return React.cloneElement(child, {
+          isActive: child.props.id === activeId,
+        });
+      })}
+    </div>
+  );
+}
+```
+
+깔끔해 보이지만, 부모와 자식 사이의 데이터 흐름이 어디에도 적혀 있지 않아요. Tab 컴포넌트의 타입에는 isActive 가 없고, Tabs 가 child.props 에 어떤 prop 을 얹는지도 호출자 시점에서는 보이지 않아요. child 의 타입이 ReactElement 일 때 child.props 의 모양은 타입에서 사라지거든요. 이 흐림이 unknown 으로 그대로 드러나는 게 다음 절의 핵심이에요.
+
+## 공식 문서가 uncommon 이라고 부르는 이유
+
+[React 공식 문서](https://react.dev/reference/react/cloneElement) 의 cloneElement 페이지는 함수 설명을 시작하기 전에 경고부터 적어놨어요. 설명서가 자기 도구를 이렇게 적극적으로 말리는 경우는 드물어요.
+
+<Callout variant="warning">
+"Cloning children makes it hard to tell how the data flows through your app." - React docs
+
+부모가 자식의 모양을 몰래 바꾸면, 글 한 줄로는 따라갈 수 없는 흐름이 만들어진다는 말이에요. 이건 동작 차원의 문제이자, 곧 타입 차원의 문제이기도 해요.
+
+</Callout>
+
+데이터 흐름이 흐려진다는 말은 타입 추론 입장에서 보면 "input 의 모양이 정의되지 않는다" 와 같은 뜻이에요. Tab 컴포넌트는 자기에게 isActive 가 들어올 거라는 사실을 모르고, Tabs 는 children 이 어떤 컴포넌트인지 모르거든요. 양쪽 다 상대를 가리키지 못하는 상태에서 prop 만 강제로 꽂혀요.
+
+## React 19 가 바꾼 한 가지
+
+여기서 React 19 가 결정적으로 한 발 디뎌요. ReactElement 의 props 기본 타입이 any 에서 unknown 으로 바뀌었어요.<Cite id="react-19-upgrade-guide" />
+
+```tsx
+type Example = ReactElement["props"];
+// React 18: any
+// React 19: unknown
+```
+
+명시적으로 타입 인자를 줬다면 영향이 없어요. `ReactElement<{ id: string }>` 의 props 는 여전히 `{ id: string }` 이거든요. 문제가 되는 건 "그냥 ReactElement" 로 받은 자리예요. 위 Tabs 예시에서 child 의 타입이 ReactElement 면, child.props 는 unknown 이 되고, `cloneElement(child, { isActive })` 의 두 번째 인자도 `Partial<unknown>` 과 매칭이 안 돼서 컴파일러가 막아요.
+
+<Callout variant="info">
+"Element introspection only exists as an escape hatch, and you should make it explicit that your props access is unsound via an explicit any." - React 19 Upgrade Guide
+
+자식 element 안을 들여다보고 props 를 만지작거리는 건 의도적으로 안전하지 않은 동작이라는 거예요. 타입 시스템이 unknown 으로 만들어둔 건 우연이 아니라 표시예요. 굳이 해야겠다면 `ReactElement<any>` 로 명시해서 책임을 자기가 진다는 걸 코드에 적어두라는 안내죠.
+
+</Callout>
+
+[지난 글](/posts/typescript-as-assertion) 에서 as 가 컴파일러를 설득할 뿐 안전을 보장하지 못한다는 얘기를 했어요. cloneElement 가 자꾸 as any 를 부르는 자리도 정확히 같은 자리예요. 컴파일러가 "이거 위험해요" 라고 신호를 보내는데, 우리가 "괜찮으니까 통과시켜" 라고 대답하는 거죠.
+
+## ReactNode 와 ReactElement 사이의 좁은 길
+
+cloneElement 를 쓰려고 하면 또 하나의 좁은 길이 있어요. children 의 흔한 타입은 ReactNode 인데, cloneElement 는 ReactElement 만 받거든요.
+
+ReactNode 는 element 외에도 문자열, 숫자, boolean, null, 배열까지 포함하는 넓은 타입이에요. 반면 ReactElement 는 JSX 태그나 createElement 의 결과만 가리켜요. 숫자 42 는 valid React node 지만 valid React element 가 아니에요.
+
+[React 공식 문서](https://react.dev/reference/react/isValidElement) 가 isValidElement 의 거의 유일한 사용처로 든 것이 정확히 이 자리예요.
+
+<Callout variant="info">
+"It's mostly useful if you're calling another API that only accepts elements (like cloneElement does)." - React docs
+
+isValidElement 가 필요한 거의 유일한 순간이 cloneElement 옆이라는 말이 어색하지 않아요. 이 가드 없이는 타입도 런타임도 함께 막혀요.
+
+</Callout>
+
+[타입 가드 글](/posts/typescript-type-guards) 에서 다뤘듯, isValidElement 도 일반적인 타입 가드와 같은 메커니즘으로 동작해요. 가드를 통과한 자리에서만 child 가 ReactElement 로 좁혀지고, 그 좁힘 안에서만 cloneElement 호출이 성립하는 거죠. 그런데 이렇게 가드를 통과해도 child.props 는 여전히 unknown 이라는 게 함정이에요. 가드는 element 인지 확인할 뿐, 그 element 의 props 모양까지 알려주진 못하거든요.
+
+## 흐름이 보이는 패턴들
+
+cloneElement 페이지의 권장 대안 섹션은 세 가지를 들어요. render props, Context, custom Hook 이에요. 셋 다 공통점이 있어요. 부모가 자식의 모양을 몰래 바꾸지 않고, 데이터를 명시적인 자리에 둔다는 점이에요.
+
+render props 는 자식이 함수를 받아서 자기가 원하는 자리에 펼쳐요. 부모가 prop 을 던져주면 자식이 받아서 자기 element 안에 꽂는 거죠. 양쪽이 서로 어떤 데이터를 주고받는지 시그니처에 적혀 있어요.
+
+Context 는 데이터를 공중에 띄워두고 자식이 알아서 hook 으로 읽어요. 부모가 자식에게 직접 prop 을 꽂지 않으니, 중간에 어떤 컴포넌트가 끼어 있어도 동작해요. Tabs 같은 시나리오라면 TabsContext 에 activeId 를 두고 각 Tab 이 useContext 로 읽는 식이에요.
+
+custom Hook 은 prop 자체가 아니라 동작을 공유해요. useTab(id) 같은 훅이 각 Tab 안에서 active 여부를 계산해 내려주는 거죠. 부모와 자식 사이의 결합이 훅의 시그니처로 옮겨져요.
+
+세 패턴 사이의 결정은 한 글에서 다 풀 양이 아니에요. [어떤 자리에 children 으로 받고, 어떤 자리에 prop 으로 받을지](/posts/children-vs-render-props) 에서 합성 패턴들을 비교했으니 그쪽을 같이 보세요.
+
+cloneElement 가 잘못된 도구는 아니에요. 다만 이 도구를 꺼낸 순간 데이터 흐름이 흐려지고, 흐려진 흐름은 타입 시스템이 정직하게 unknown 으로 표시해줘요. as any 를 적기 전에, 흐름 자체를 다른 자리로 옮길 수 있는지 한 번 더 보는 게 좋아요.
+
+<References
+  items={[
+    {
+      id: "react-cloneelement",
+      title: "React 공식 문서 - cloneElement",
+      href: "https://react.dev/reference/react/cloneElement",
+      description: "함수 시그니처, 데이터 흐름이 흐려진다는 경고, 권장 대안 세 가지 확인",
+    },
+    {
+      id: "react-children",
+      title: "React 공식 문서 - Children",
+      href: "https://react.dev/reference/react/Children",
+      description: "Children.map 의 한계와 권장 대안 확인",
+    },
+    {
+      id: "react-isvalidelement",
+      title: "React 공식 문서 - isValidElement",
+      href: "https://react.dev/reference/react/isValidElement",
+      description: "ReactNode 와 ReactElement 의 차이, cloneElement 와 함께 쓰는 거의 유일한 자리",
+    },
+    {
+      id: "react-19-upgrade-guide",
+      title: "React 19 Upgrade Guide - TypeScript Changes",
+      href: "https://react.dev/blog/2024/04/25/react-19-upgrade-guide",
+      description: "ReactElement props 기본 타입이 any 에서 unknown 으로 바뀐 변경 사항",
+    },
+  ]}
+/>
