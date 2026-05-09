@@ -1,0 +1,127 @@
+---
+title: "쿠키는 왜 매 요청마다 따라다닐까"
+description: "HTTP 가 망각하기로 한 자리에 쿠키가 자동으로 따라붙는 이유예요"
+date: 2026-05-09
+tags: ["네트워크", "HTTP", "쿠키", "브라우저", "보안"]
+published: true
+---
+
+브라우저 DevTools 의 Network 탭을 띄워두고 같은 사이트 안에서 이리저리 클릭해보면, 매 요청 헤더 자리에 똑같은 `Cookie:` 줄이 따라붙어요. 큰 HTML 응답을 받을 때도 그렇고, 잠깐 스치는 작은 png 한 장을 받을 때도 똑같죠. "이 작은 이미지 한 장에 내 세션이 왜 따라가지?" 한 번쯤 그렇게 의아했던 적 있을 거예요. 알고 보면 그 자동성은 [MDN 이 정리한 HTTP cookies 가이드](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies) 가 정확히 약속한 그림이거든요. 매번 따라가는 게 아니라, 따라가도록 합의해둔 거예요.
+
+## 매 요청마다 같은 헤더가 따라가는 광경
+
+같은 origin 안에서 요청을 띄워보면 응답 시간이 다르고 메서드도 다르고 path 도 제각각인데, `Cookie` 헤더만은 일관되게 같은 값이에요. JS 가 따로 손을 댄 것도 아니고, 서버가 매번 "이번에도 같이 보내" 라고 지시하는 것도 아니죠. 브라우저가 알아서 묶어 보내는 거예요.
+
+근데 묘하게 도메인이 바뀌면 그 자동성이 사라져요. `app.example.com` 에서 발급된 쿠키가 `cdn.example.com` 한테는 비어서 도착하거든요. 같은 회사 자산이고 사용자 입장에선 "같은 사이트" 인데도요. 자동이라고 부르긴 하는데 어디까지가 자동이고 어디부터는 안 가는 걸까요. 출발점은 HTTP 자체가 무엇을 약속했는지부터예요.
+
+## HTTP 가 약속한 망각
+
+RFC 9110 이 HTTP 의 의미를 정리한 자리에서 가장 먼저 등장하는 단어는 stateless 예요. 요청 하나만 떼어놓고 봐도 의미가 통해야 한다는 약속이거든요.<Cite id="rfc-9110" />
+
+<Callout variant="warning">
+"HTTP is defined as a stateless protocol, meaning that each request message's semantics can be understood in isolation." - RFC 9110 §3.3
+
+요청 한 건의 의미를 그 요청 안에서만 보고 이해할 수 있어야 한다는 뜻이에요. 서버는 직전 요청이 누구였는지 기억할 의무가 없죠.
+
+</Callout>
+
+명세가 이걸 한계로 적어둔 게 아니에요. 같은 절 바로 뒤에 프록시 연결 재사용과 다중 서버 간 동적 로드 밸런싱이 stateless 위에서 가능해진다는 부연이 따라붙어 있거든요. 한 요청이 어느 서버에 가도, 중간에 어떤 프록시가 끼어도 결과가 같아야 캐시도 분산도 의미가 있죠. 망각은 부족함이 아니라 의도된 자유였던 거예요.
+
+여기서 자주 헷갈리는 게 HTTP/1.1 의 `keep-alive` 예요. TCP 연결을 재사용한다는 얘기는 들어봤는데 "그럼 stateless 가 아닌 거 아니야?" 싶거든요. [MDN HTTP session 가이드](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Session) 는 그 둘을 명확히 갈라놓아요.<Cite id="mdn-http-session" /> 커넥션이 살아 있다는 것과 상태가 살아 있다는 건 다른 얘기예요. 한 TCP 위에서 여러 요청을 흘려보낼 수는 있어도, 요청 각각은 여전히 자기 안에서 의미가 닫혀 있어야 하거든요.
+
+## 쿠키가 끼어든 자리
+
+다만 실제 서비스는 사용자를 기억해야 해요. 로그인이 있어야 하고, 장바구니가 다음 페이지에서도 남아 있어야 하고요. RFC 6265 가 그 자리를 메우려고 만들어진 표준이에요. 명세 첫 문장이 "HTTP is mostly stateless" 로 시작하거든요.<Cite id="rfc-6265" /> 그 "mostly" 위에 상태를 얹는 합의가 쿠키예요.
+
+흐름은 양방향이에요. 서버가 응답에 `Set-Cookie` 헤더를 한 줄 붙이면, 브라우저가 그걸 보고 작은 메모를 챙겨두죠. 다음 요청부터는 그 메모를 `Cookie` 헤더로 다시 들려보내요.
+
+```http
+HTTP/1.1 200 OK
+Set-Cookie: session=abc123; Path=/; HttpOnly
+
+GET /next HTTP/1.1
+Cookie: session=abc123
+```
+
+서버가 매번 "이거 다시 보내" 라고 지시하지 않아요. 응답에 한 번 적어둔 메모를 브라우저가 들고 있다가, 같은 사이트로 향하는 요청마다 자기 판단으로 헤더에 끼워 넣는 거죠. 책임이 서버에서 클라이언트로 이동한 자리가 정확히 여기예요.
+
+[MDN 의 표현](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies)으로는 "이후 요청에 만료되지 않은 쿠키를 자동으로 동봉한다" 예요.<Cite id="mdn-http-cookies" /> 자동의 정체가 바로 이 "메모 보관 + 자동 첨부" 한 쌍이에요.
+
+## 도메인과 경로가 정한 첨부 규칙
+
+그럼 어디까지를 "같은 사이트" 로 보는 걸까요. RFC 6265 가 그 기준을 두 축으로 정해뒀어요. 도메인 매칭과 경로 매칭이에요.
+
+도메인 쪽 규칙은 의외로 까다로워요. `Set-Cookie` 에 `Domain=example.com` 을 명시하면 `example.com` 본인과 `www.example.com`, `app.example.com` 같은 서브도메인 전부에 따라가요. 반면 `Domain` 을 아예 생략하면 호스트 전용으로 좁아지죠. `app.example.com` 에서 받은 쿠키가 `cdn.example.com` 으로는 안 가는 거예요. 더 안전한 기본값을 두려고 명시 vs 생략의 의미를 정반대로 잡아둔 셈이에요.
+
+경로 쪽은 접두 매칭이에요. `Path=/docs` 가 붙어 있으면 `/docs`, `/docs/web`, `/docs/web/api` 같은 하위 경로에는 따라가지만, `/`, `/docsets`, `/fr/docs` 한테는 안 가요. Path 는 대부분 `/` 로 두고 풀어주는 편이라, 실전에서 경로 분기 쿠키를 의식할 일은 도메인보다 적은 편이긴 해요.
+
+요약하면 "매 요청에 따라간다" 는 표현은 정확히는 옳지 않아요. 같은 도메인에 매칭되고, 같은 경로 안에 들어가고, 만료 전이고, `Secure` 와 `SameSite` 조건까지 통과해야 비로소 따라가는 거예요. 자동이지만 무조건은 아니죠.
+
+## 자동 첨부가 남긴 비용과 그림자
+
+자동성은 편의면서 동시에 그림자도 만들어요. MDN 가이드가 그 그림자를 단도직입적으로 적어둬요.
+
+<Callout variant="warning">
+"Cookies are sent with every request, so they can worsen performance, especially if you have a lot of cookies set." - MDN HTTP cookies
+
+같은 도메인으로 가는 모든 요청에 따라가니까, 쿠키가 많거나 클수록 매 요청에 그만큼의 헤더가 함께 떠나요. 작은 이미지 하나에도 그게 붙어요.
+
+</Callout>
+
+도메인 하나에 쿠키 한 개당 약 4KB 까지 쌓을 수 있는데, 이미지나 CSS 같은 작은 자산 요청에도 그게 그대로 따라가니까 모바일이나 느린 회선에서는 누적이 무시 못 할 수준이 되거든요. "쿠키 도메인" 을 자산 도메인에서 분리해두는 옛날 패턴은 정확히 이 비용을 피하려는 거였어요.<Cite id="mdn-http-cookies" />
+
+다른 한쪽 그림자는 보안이에요. RFC 6265 §8.1 이 이걸 정확히 짚거든요.
+
+<Callout variant="warning">
+"Cookies encourage developers to rely on ambient authority for authentication, often becoming vulnerable to attacks such as cross-site request forgery." - RFC 6265 §8.1
+
+사용자가 제출 의도를 따로 표시하지 않아도 쿠키가 자동으로 따라가니까, 다른 사이트가 그 자동성을 슬쩍 빌려쓸 수 있다는 얘기예요. 이게 CSRF (Cross-Site Request Forgery) 의 뿌리예요.
+
+</Callout>
+
+내가 로그인된 채로 다른 탭에서 악의적인 페이지를 열었을 때, 그 페이지가 우리 사이트로 요청을 던지면 브라우저는 똑같이 쿠키를 끼워보내요. 자동 첨부 자체가 인증의 대용이 되어버린 자리에서 생기는 약점이에요.
+
+그래서 현대 브라우저는 자동성을 끄지 않고, 어떤 맥락에서 따라갈지를 좁히는 쪽으로 길들였어요. `SameSite=Lax` 가 현재 기본값이라 크로스 사이트 임베드 요청 (이미지 태그나 iframe 안에서 던지는 요청 같은) 에는 쿠키가 따라가지 않아요. `HttpOnly` 가 붙은 쿠키는 자바스크립트가 `document.cookie` 로 읽지 못하고요. `Secure` 가 붙어 있으면 HTTPS 위에서만 떠나죠. 자동성을 통째로 부수는 대신 통로를 좁히는 쪽으로 합의가 진화한 거예요.<Cite id="web-dev-samesite" />
+
+헤더 한 줄에 매 요청마다 같은 쿠키가 박혀 있는 광경을 다시 보면, 그건 망각하기로 했던 HTTP 위에 기억을 얹기 위한 표준 합의의 흔적이에요. 그리고 그 자동 첨부가 만든 헤더 오버헤드는 HTTP/2 의 헤더 압축이 이어받아 다른 방식으로 풀어줬죠. 그쪽 이야기는 [한 줄로 모두 보내는 HTTP/2](/posts/http-multiplexing) 에 정리해뒀어요.
+
+<References
+  items={[
+    {
+      id: "mdn-http-cookies",
+      title: "MDN - HTTP cookies 가이드",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies",
+      description: "자동 첨부 흐름과 도메인·경로 매칭 규칙, 헤더 오버헤드 경고 인용",
+    },
+    {
+      id: "rfc-6265",
+      title: "RFC 6265 - HTTP State Management Mechanism",
+      href: "https://datatracker.ietf.org/doc/html/rfc6265",
+      description: "쿠키 표준 명세. Set-Cookie 와 Cookie 양방향, 도메인·경로 매칭, ambient authority 위험 §8.1 인용",
+    },
+    {
+      id: "rfc-9110",
+      title: "RFC 9110 - HTTP Semantics",
+      href: "https://www.rfc-editor.org/rfc/rfc9110.html",
+      description: "stateless 의 정의와 설계 의도 §3.3 인용",
+    },
+    {
+      id: "mdn-set-cookie",
+      title: "MDN - Set-Cookie 헤더",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie",
+      description: "Domain, Path, Secure, HttpOnly, SameSite 같은 첨부 조건을 정하는 속성 레퍼런스",
+    },
+    {
+      id: "mdn-http-session",
+      title: "MDN - HTTP session",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Session",
+      description: "HTTP/1.1 keep-alive 와 stateless 의 구분, 커넥션과 상태가 다른 개념임을 정리",
+    },
+    {
+      id: "web-dev-samesite",
+      title: "web.dev - SameSite cookies explained",
+      href: "https://web.dev/articles/samesite-cookies-explained",
+      description: "SameSite 속성의 Strict, Lax, None 동작 차이와 현재 기본값 Lax 정리",
+    },
+  ]}
+/>
