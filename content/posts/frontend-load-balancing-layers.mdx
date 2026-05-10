@@ -1,0 +1,117 @@
+---
+title: "한 도메인이 갈라지는 자리들"
+description: "같은 주소를 쳐도 사람마다 다른 서버에 닿을 수 있어요. DNS와 CDN 거점까지, 어디서 갈라지는지만 따라가요."
+date: 2026-05-10
+tags: ["네트워크", "CDN", "DNS", "성능", "Edge"]
+published: true
+---
+
+이 글의 한 가지 축만 기억해도 돼요. **같은 도메인인데도 사용자마다 다른 서버가 응답할 수 있다**는 것. 나머지 용어는 전부 그걸 설명하는 재료예요.
+
+## 먼저 장면을 떠올려 볼게요
+
+한국에 있는 사람과 독일에 있는 사람이 똑같이 `example.com` 을 열었다고 해볼게요. 둘 다 주소창에는 같은 글자가 찍혀 있어요. 그런데 첫 패킷이 향한 거점은 다를 수 있어요. DNS 가 돌려준 힌트가 다를 수도 있고, 같은 주소를 여러 곳에서 동시에 받아들이는 방식(이전 글에서 다룬 Anycast 흐름) 때문에 가까운 쪽 거점으로 붙을 수도 있거든요.
+
+거점에 도착한 뒤에도 이야기는 끝이 아니에요. 가장자리 캐시에 이미 답이 있으면 원본 서버까지 요청이 가지 않을 수 있어요. 반대로 캐시에 없으면 컴퓨트가 도는 다른 시설로 이어져요. 겉으로는 한 도메인인데, 속에서는 이렇게 층마다 갈림이 생겨요.
+
+<FlowDiagram
+  height={340}
+  caption="같은 도메인이라도 DNS와 거점 안에서 목적지가 달라질 수 있어요"
+  nodes={[
+    { id: "user", title: "사용자", description: "같은 호스트 이름", x: 80, y: 0 },
+    { id: "dns", title: "DNS", description: "정책에 따른 주소 응답", x: 80, y: 95 },
+    {
+      id: "pop",
+      title: "CDN 거점(PoP)",
+      description: "가장자리에서 라우팅·캐시",
+      x: 80,
+      y: 190,
+      kind: "accent",
+    },
+    {
+      id: "region",
+      title: "리전·원본",
+      description: "캐시 미스 때 이어짐",
+      x: 80,
+      y: 285,
+    },
+  ]}
+  edges={[
+    { from: "user", to: "dns", label: "이름 질문" },
+    { from: "dns", to: "pop", label: "연결" },
+    { from: "pop", to: "region", label: "필요할 때만" },
+  ]}
+/>
+
+## 첫 번째 갈림길, DNS
+
+도메인 이름을 IP 주소로 바꿔주는 DNS 는 단순한 전화번호부가 아니에요. 응답을 어떻게 줄지 정책이 붙거든요. AWS 의 [Route 53](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html) 같은 매니지드 DNS 는 한 도메인에 대해 여러 라우팅 정책을 고를 수 있어요.<Cite id="aws-route53-routing-policy" />
+
+예를 들면 이런 식이에요. 지연(latency) 정책은 사용자에게 가까운 리전 쪽으로 보내려고 응답을 고르고, 지리(geolocation) 정책은 대략 어느 나라에서 붙었는지에 따라 다른 답을 줄 수 있어요. 가중치(weighted) 정책은 비율로 나눠 점진 배포에 쓰고, 페일오버(failover) 정책은 헬스 체크에 실패한 쪽 대신 백업을 돌려요.
+
+여기서 흔한 오해가 DNS 라운드 로빈 이에요. 응답에 여러 IP 를 돌려가며 주면 분산처럼 보이지만, DNS 는 그 IP 가 살아 있는지까지는 모르거든요. 그래서 죽은 노드가 섞여 있으면 사용자가 가끔 빈 화면이나 오류를 보기도 해요. Route 53 의 다중 응답(multivalue answer) 정책은 헬스 체크를 통과한 레코드만 골라 최대 여덟 개까지 무작위로 돌려줘서, 비슷해 보이는 분산이라도 죽은 노드는 빼는 쪽에 가깝게 동작해요.
+
+## 두 번째 갈림길, 거점 안에서
+
+DNS 가 어느 쪽으로 보내줬든, 한 번에 끝나는 경우는 드물어요. [Vercel](https://vercel.com/docs/cdn) CDN 구성을 보면 수십 개국에 흩어진 거점(PoP, Point of Presence) 과 그보다 적은 수의 컴퓨트 리전이 같은 도메인 뒤에 같이 붙어 있어요.<Cite id="vercel-cdn" />
+
+PoP 는 사용자와 가까운 가장자리 거점이에요. 요청이 들어오면 여기서 먼저 갈림이 생겨요. 캐시에 답이 있으면 거점에서 응답을 끝내요.
+
+캐시에 없으면 컴퓨트 리전 쪽으로 넘겨요. 리전은 코드가 실제로 실행되는 쪽에 가깝게 두는 개념이에요. PoP 와 리전 사이는 같은 사업자가 깔아 둔 사설 백본을 타는 경우가 많아요. 공용 인터넷만 맴돌 때보다 지연을 줄이려는 선택이라고 보면 돼요.
+
+정리하면 한 요청이 거점 안에서 라우팅, 캐시, 컴퓨트 층을 순서대로 거치면서, 각 층이 거기서 끝낼지 아래로 넘길지를 정해요. 여러 거점이 같은 IP 를 동시에 내걸 수 있게 만드는 Anycast 는 [CDN 속도와 캐시](/posts/cdn-speed-and-caching) 글에서 이미 풀었어요. 이번 글에서는 거점에 붙은 뒤에도 한 번 더 갈린다는 점만 짚을게요.
+
+## 브라우저 쪽은 짧게만
+
+예전 HTTP/1.x 시대에는 한 호스트당 동시 연결 수가 제한돼 있어서, `static1.example.com`, `static2.example.com` 처럼 호스트를 늘리는 도메인 분할(domain sharding) 이 흔했어요. [MDN 의 HTTP 연결 관리 문서](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Connection_management_in_HTTP_1.x) 는 HTTP/2 이후로는 이 트릭이 이득이 아니라고 못 박아요.<Cite id="mdn-connection-management" />
+
+<Callout variant="warning">
+"In HTTP/2, domain sharding is no longer useful: the HTTP/2 connection is able to handle parallel unprioritized requests very well. Domain sharding is even detrimental to performance." - MDN
+
+한 연결 안에서 스트림을 잘 나눠 쓰니까 호스트를 쪼개 봤자 이득이 없고, 브라우저가 같은 IP 와 인증서를 쓰는 호스트를 한 연결로 합치기(connection coalescing)까지 해서 오히려 DNS·핸드셰이크만 늘어날 수 있어요.
+
+</Callout>
+
+DNS 나 CDN 처럼 “어디로 보낼지”가 갈리는 이야기와 달리, 여기는 브라우저가 연결을 어떻게 묶느냐 이야기예요. 같은 도메인이 갈라진다는 큰 그림과 맞닿아 있지만, preconnect 나 HTTP/2 만 따로 파고들면 글이 또 하나 필요할 정도로 깊어져요. 이번 글에서는 여기까지로 줄일게요.
+
+## 프론트엔드가 거들 자리
+
+DNS 정책이나 거점 라우팅은 인프라가 잡고, 연결 합치기는 브라우저가 해돼요. 프론트엔드가 직접 손댈 수 있는 건 상대적으로 얇아요.
+
+그중에서도 현실적인 건 [`<link rel="preconnect">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preconnect) 를 아주 적게 쓰는 일이에요.<Cite id="mdn-preconnect" /> 정말 첫 화면에서 바로 닿는 외부 origin 한두 곳에만 두고, 나머지는 `dns-prefetch` 로 DNS 단계만 가볍게 열어두는 식이에요. 모든 외부 도메인에 preconnect 를 붙이면 핸드셰이크가 한꺼번에 몰려 도리어 느려질 수 있어요.
+
+```html
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="dns-prefetch" href="https://api.analytics.example.com" />
+```
+
+부하를 어느 층으로 보낼지는 [렌더링 전략](/posts/rendering-strategies-map) 이야기고, 클라이언트에서 요청을 가로채는 패턴은 [Service Worker](/posts/service-worker-network-proxy) 글이 맞아요. 한 도메인 뒤에서 일어나는 일이 많다는 걸 알아두면, 어디를 고쳐야 효과가 나는지는 훨씬 잘 보여요.
+
+<References
+  items={[
+    {
+      id: "mdn-connection-management",
+      title: "MDN - Connection management in HTTP/1.x",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Connection_management_in_HTTP_1.x",
+      description: "도메인 분할이 HTTP/2 의 connection coalescing 으로 무력화된 사정",
+    },
+    {
+      id: "mdn-preconnect",
+      title: "MDN - preconnect 리소스 힌트",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/rel/preconnect",
+      description: "DNS, TCP, TLS 핸드셰이크 미리하기와 남용 시 역효과",
+    },
+    {
+      id: "aws-route53-routing-policy",
+      title: "AWS - Route 53 Routing Policy",
+      href: "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-policy.html",
+      description: "DNS 응답 정책과 multivalue answer 의 헬스 체크",
+    },
+    {
+      id: "vercel-cdn",
+      title: "Vercel - CDN Overview",
+      href: "https://vercel.com/docs/cdn",
+      description: "PoP, 컴퓨트 리전, 라우팅에서 캐시·컴퓨트로 이어지는 흐름",
+    },
+  ]}
+/>
