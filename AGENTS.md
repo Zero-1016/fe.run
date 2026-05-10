@@ -12,6 +12,7 @@
 
 | 작업                    | 명령                                               |
 | ----------------------- | -------------------------------------------------- |
+| 글감 추천               | `/blog-topic-suggest [영역]`                       |
 | 새 글 작성              | `/blog-write <주제> [URL ...]`                     |
 | 기존 글 다듬기          | `/blog-revise <파일> [의도]`                       |
 | 규칙 수정               | `/blog-rule-editor`                                |
@@ -128,7 +129,7 @@ via: orchestrator
 
 ## 스킬 관계
 
-9개 스킬은 다음과 같이 호출 관계를 맺습니다.
+12개 스킬은 다음과 같이 호출 관계를 맺습니다.
 
 ### 호출 관계 (실선)
 
@@ -148,9 +149,15 @@ blog-revise (오케스트레이터, 기존 글 다듬기)
   ├── blog-research        (패턴 3 자료 보강, sub-agent)
   └── blog-write           (패턴 4 완전 재작성)
 
+blog-topic-suggest (글감 추천, 독립 실행)
+  ├── config/topic-sources.md   (영감 소스 카탈로그)
+  ├── content/posts/*.mdx        (frontmatter 인덱스, 중복도용)
+  └── (사용자 선택 후 사용자가 직접 /blog-write 호출 — 자동 연결 안 함)
+
 blog-rule-editor (메타 관리, 별도)
   ├── SHARED.md
   ├── config/domains.md
+  ├── config/topic-sources.md
   └── 각 스킬의 SKILL.md
 
 blog-banner (배너 모티프 관리, 독립 실행)
@@ -174,6 +181,7 @@ blog-banner (배너 모티프 관리, 독립 실행)
 | `blog-draft-review`      | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY                                                                                                                    |
 | `blog-write`             | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY, §FILE-LAYOUT, §UI-USER-CHOICE                                                                                     |
 | `blog-revise`            | §FILE-LAYOUT, §FRONTMATTER, §UI-USER-CHOICE                                                                                                                |
+| `blog-topic-suggest`     | §SOURCE-PRIORITY, §DOMAIN-WHITELIST, §UI-USER-CHOICE, §FRONTMATTER, §RULE-EXTERNAL-MENTION, §TOPIC-SUGGEST-FLOW                                            |
 | `blog-rule-editor`       | §UI-USER-CHOICE                                                                                                                                            |
 
 모든 스킬이 `§UI-USER-CHOICE` 를 참조해야 합니다 (사용자 선택지가 있는 경우).
@@ -336,6 +344,30 @@ find content/posts/.backups/ -mtime +30 -delete
 
 작은 오타 수정 같은 경우는 직접 편집이 빠르고, 어조나 구조 변경 같은 경우는
 `blog-revise` 가 안전합니다.
+
+### 시나리오 7: 다음 글 주제가 떠오르지 않을 때
+
+```bash
+# 영역 지정
+/blog-topic-suggest CSS
+/blog-topic-suggest React
+/blog-topic-suggest 성능
+
+# 영역 생략 — 기존 글 태그 빈도로 상위 3개 자동 추정 후 확인
+/blog-topic-suggest
+
+# 라벨/개수 옵션
+/blog-topic-suggest CSS --label trend --count 8
+```
+
+`blog-topic-suggest` 가 외국·국내 유명 테크 블로그를 영감 소스로 후보 5~8개를
+추천합니다. 각 후보에 트렌드/에버그린 라벨, 기존 글과의 중복도, 1순위 자료
+가능성이 표시됩니다.
+
+영감 도메인은 추천 단계 표시 전용입니다. 사용자가 후보를 고르면 안내 메시지에
+따라 `/blog-write <선택한 제목>` 을 직접 호출 (자동 연결 없음). blog-write 의
+blog-research 가 1순위 자료를 새로 수집하므로, 영감 도메인은 본문/References 에
+들어가지 않습니다 (§RULE-EXTERNAL-MENTION + §TOPIC-SUGGEST-FLOW).
 
 ---
 

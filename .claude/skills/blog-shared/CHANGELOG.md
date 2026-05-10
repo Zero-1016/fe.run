@@ -5,6 +5,169 @@
 
 ---
 
+## 2026-05-10 12:44
+
+### blog-topic-suggest 신설 — 외국·국내 테크 블로그 영감 기반 글감 추천
+
+**변경**:
+
+신규 파일 (2개):
+
+- `.claude/skills/blog-topic-suggest/SKILL.md` — 새 스킬. Phase 1 (기존 글
+  frontmatter 인덱스) → Phase 2 (영감 소스 sub-agent 크롤, WebFetch 한도 8회) →
+  Phase 3 (트렌드/에버그린/혼합 라벨링) → Phase 4 (중복도 결정론 점수, 가중치
+  tag 0.5 + title 0.35 + slug 0.15, 0.5+ 자동 제외) → Phase 5 (1순위 자료
+  가능성 추정, context7 resolve-id 만 사용) → Phase 6 (마크다운 표 + 사용자
+  선택, AskUserQuestion) → Phase 7 (blog-write 자동 호출 안 함, 안내 메시지만)
+- `.claude/skills/blog-shared/config/topic-sources.md` — 영감 소스 카탈로그.
+  `§TOPIC-SOURCE-TREND` (web.dev, developer.chrome.com, hacks.mozilla.org,
+  v8.dev, webkit.org, react.dev/blog, nextjs.org/blog, vercel.com/blog),
+  `§TOPIC-SOURCE-EVERGREEN` (css-tricks, smashing-magazine, joshwcomeau,
+  kentcdodds), `§TOPIC-SOURCE-KOREA` (toss.tech, tech.kakao.com,
+  techblog.woowahan.com, d2.naver.com), `§TOPIC-SOURCE-BLACKLIST`
+
+수정 파일 (2개):
+
+SHARED.md (2곳):
+
+- `§RULE-EXTERNAL-MENTION` 끝부분에 "topic-suggest 와의 분리" 단락 추가 —
+  영감 도메인이 본문 인라인 링크/References 에 자동 들어가지 않음을 명시
+- `§META-FEEDBACK-HANDOFF` 다음에 `§TOPIC-SUGGEST-FLOW` 신설 — 라벨 정의,
+  중복도 임계값(0.5/0.3), 영감 출처 vs References 분리 원칙, 카탈로그 위치
+  명시
+
+AGENTS.md (4곳):
+
+- "빠른 참조" 표에 `/blog-topic-suggest [영역]` 행 추가 (맨 위)
+- "스킬 관계" 헤더 "9개 스킬" → "12개 스킬" 정정
+- 호출 관계 다이어그램에 `blog-topic-suggest` 블록 추가 (독립 실행, blog-write
+  자동 연결 없음). blog-rule-editor 관리 파일에 `config/topic-sources.md` 추가
+- 참조 관계 표에 `blog-topic-suggest` 행 추가 (참조: §SOURCE-PRIORITY,
+  §DOMAIN-WHITELIST, §UI-USER-CHOICE, §FRONTMATTER, §RULE-EXTERNAL-MENTION,
+  §TOPIC-SUGGEST-FLOW)
+- "작업 시나리오별 가이드" 시나리오 6 다음에 시나리오 7 (다음 글 주제가
+  떠오르지 않을 때) 추가
+
+**이유**:
+
+64개 글이 누적되면서 다음 글 주제 결정에 시간이 듦. 외국·국내 테크 블로그를
+영감 소스로 활용하되, 영감 출처가 본문 References 로 잘못 끌려가는 사고를
+구조적으로 차단해야 함 (§RULE-EXTERNAL-MENTION 보강 동기). blog-research 의
+sub-agent 격리 패턴을 그대로 차용해 컨텍스트 오염 없이 후보 메타만 받음.
+
+**수정 유형**: 새 skill 추가 (Rail 7 — 여러 번 확인, 본 케이스는 plan
+승인 후 통합 1회로 압축)
+
+**영향 범위**:
+
+- 새 명령 `/blog-topic-suggest [영역]` 사용 가능
+- 기존 글 영향 없음 (글 작성 규칙 변경 아님)
+- blog-write 와는 사용자 클릭으로만 연결, 자동 호출 없음 (영감 출처가 GATE 1
+  컨텍스트로 새는 것 차단)
+- 기존 다른 스킬에 추가 변경 없음
+
+**백업**:
+
+- `.backups/SHARED-20260510-124446.md`
+- `.backups/AGENTS-20260510-124446.md`
+
+**재검증 결과**: 글 작성 규칙 변경 아님 → 기존 글 재검증 불필요 (Phase 6 스킵)
+
+---
+
+## 2026-05-10 12:57
+
+### blog-topic-suggest 영속화 (Step 6-3, 6-4, 7-1) 추가
+
+**변경**:
+
+`.claude/skills/blog-topic-suggest/SKILL.md` (5곳):
+
+- frontmatter `tools` 에 `Write`, `Edit`, `Bash` 추가 (로그 파일 쓰기용)
+- Phase 6 에 Step 6-3 (추천 결과 영속화) 신설:
+  - 저장 위치: `content/tmp/topic-suggestions/<YYYYMMDD-HHMMSS>-<영역-slug>.md`
+  - frontmatter: created_at / area / label_mode / count / webfetch_used /
+    selected
+  - 가드 헤더 (영감 도메인 References 자동 포함 금지) 본문 상단 자동 포함
+  - 본문 / 원문 / 코드 블록 저장 금지 — hook_one_liner 와 메타만
+- Phase 6 에 Step 6-4 (만료 정리) 신설: 호출 시작 시 30일 초과 로그 자동
+  `find -mtime +30 -delete`
+- Phase 7-1 (로그 frontmatter `selected` 필드 업데이트) 신설, 기존 7-1 →
+  7-2 로 번호 이동
+- "제약" 섹션 갱신: `content/tmp/topic-suggestions/` 안에서만 쓰기 허용
+  (gitignored 로컬 로그)
+
+**이유**:
+
+추천 결과가 대화 컨텍스트에만 있으면 회상 불가 + 매번 WebFetch 비용. 사용자가
+"지난번 추천에서 1번 골랐는데 2~6번도 괜찮았다" 같은 회상을 할 수 있게 로컬
+영속화 추가. `content/tmp/*` 는 이미 `.gitignore` 60·73줄에 등록되어 있어 추가
+작업 불필요.
+
+**수정 유형**: 기존 skill 보강 (Phase 추가)
+
+**영향 범위**:
+
+- 기존 글 영향 없음
+- `.gitignore` 변경 없음 (이미 `content/tmp/*` 무시 규칙 존재)
+- 다른 스킬 영향 없음
+- 토큰 예산: 로그 파일 1개당 ~2KB (메타 + 후보 표). 30일 누적 ~50개 가정 시
+  100KB 미만
+
+**백업**: `.backups/blog-topic-suggest-SKILL-20260510-125731.md`
+
+**재검증 결과**: 글 작성 규칙 변경 아님 → 기존 글 재검증 불필요
+
+---
+
+## 2026-05-10 13:00
+
+### blog-topic-suggest 이전 추천 cross-dedup (Step 1-4·1-5, Phase 4-2 갱신)
+
+**변경**:
+
+`.claude/skills/blog-topic-suggest/SKILL.md` (3곳):
+
+- Phase 1 에 Step 1-4 (이전 추천 인덱스 빌드) 신설:
+  - `content/tmp/topic-suggestions/*.md` 글로브, 30 일 이내 로그만 인덱스
+  - frontmatter `selected` 채워진 후보는 "강한 중복" 으로 분류
+  - 메모리에서만 유지, 다시 쓰지 않음
+- Phase 1 에 Step 1-5 (두 인덱스 통합) 신설: 기존 글 인덱스 +
+  이전 추천 인덱스를 하나로 합치지 않고, Phase 4 가 각각 점수 계산
+- Phase 4 Step 4-2 갱신:
+  - `dupScoreVsPosts` (기존 글) 와 `dupScoreVsPrevious` (이전 추천) 분리 계산
+  - 이전 추천 임계값: 0.5 자동 제외 / 0.4 + selected 자동 제외 (사용자가
+    이미 골라 진행한 후보) / 0.3~0.5 표기
+  - 둘 중 하나라도 자동 제외 조건 만족하면 후보에서 제거
+- Phase 6 Step 6-1 출력 표 예시에 "지난 추천 유사" 표기 추가, 컬럼 표기
+  규칙 명시
+
+**이유**:
+
+사용자 피드백 — 같은 후보가 다음 호출에서 또 뜨면 짜증. 특히 이미 골라서
+blog-write 까지 진행한 후보는 강하게 차단해야 함. `content/tmp/topic-
+suggestions/` 의 만료 안 된 로그를 인덱스로 활용해 cross-suggestion dedup.
+
+기존 글 비교와 분리한 이유: 기존 글은 SSOT (이미 발행됨), 이전 추천은 후보
+(아직 안 쓴 글). 임계값과 차단 강도가 달라야 함.
+
+**수정 유형**: 기존 skill 보강 (Phase 단계 추가 + 알고리즘 갱신)
+
+**영향 범위**:
+
+- 기존 글 영향 없음
+- 이전 추천 로그가 0개면 Step 1-4 가 빈 인덱스 반환, Phase 4 의
+  `dupScoreVsPrevious` 는 항상 0 → 자연스럽게 무시됨 (backward compatible)
+- 첫 사용 시 사후 저장한 `20260510-130037-react.md` 가 인덱스에 포함되어
+  React 영역 다음 호출부터 즉시 동작
+
+**백업**: `.backups/blog-topic-suggest-SKILL-20260510-125731.md` (직전 백업
+재사용. 중간 변경 단계)
+
+**재검증 결과**: 글 작성 규칙 변경 아님 → 기존 글 재검증 불필요
+
+---
+
 ## 2026-04-30 16:49
 
 ### §RULE-TERM-INTRODUCTION 신설 — 약어·기술 용어 도입 검사
