@@ -75,3 +75,6 @@ content/tmp/*
 
 # blog-write 의 blog-revise 호출 시 임시 저장
 content/posts/.tmp/
+
+# claude
+CLAUDE.local.md

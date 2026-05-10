@@ -30,8 +30,9 @@ Read로 로드하세요:
 - `§RULE-EMDASH` — em-dash 전면 금지
 - `§RULE-COLON` (하위 §RULE-COLON-BODY, §RULE-COLON-HEADING)
 - `§RULE-BOLD` (하위 §RULE-BOLD-WHERE, §RULE-BOLD-HOW, §RULE-BOLD-KOREAN)
-- `§RULE-FORBIDDEN-PATTERNS` — 병렬 삼단, 과장 형용사, 메타 문장
+- `§RULE-FORBIDDEN-PATTERNS` — 병렬 삼단, 과장 형용사, 메타 문장, 도망치는 마무리
 - `§RULE-RHYTHM` — 호흡, 자기 목소리
+- `§RULE-PRESCRIPTION` — 진단-처방 구조면 처방 코드 1개 의무
 - `§RULE-BARE-LIST` — 본문 bare 리스트 금지
 - `§RULE-ENGLISH-QUOTE` — 영어 인용 한글 풀이
 - `§RULE-LINK-PATH` — 내부 링크 경로

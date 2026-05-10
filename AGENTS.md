@@ -178,7 +178,7 @@ blog-banner (배너 모티프 관리, 독립 실행)
 | `blog-validator`         | §FRONTMATTER, §FILE-LAYOUT, §RULE-EMDASH, §RULE-COLON-HEADING, §RULE-BOLD, §RULE-BARE-LIST, §RULE-ENGLISH-QUOTE, §DOMAIN-WHITELIST, §META-FEEDBACK-HANDOFF |
 | `blog-expression-review` | §BLOG-VOICE, §RULE-FORBIDDEN-PATTERNS, §RULE-RHYTHM, §RULE-SELF-VOICE, §META-FEEDBACK-HANDOFF                                                              |
 | `blog-coherence-review`  | (논리 구조 검사, 표면 규칙 참조 안 함), §META-FEEDBACK-HANDOFF                                                                                             |
-| `blog-draft-review`      | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY                                                                                                                    |
+| `blog-draft-review`      | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY, §RULE-PRESCRIPTION                                                                                                |
 | `blog-write`             | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY, §FILE-LAYOUT, §UI-USER-CHOICE                                                                                     |
 | `blog-revise`            | §FILE-LAYOUT, §FRONTMATTER, §UI-USER-CHOICE                                                                                                                |
 | `blog-topic-suggest`     | §SOURCE-PRIORITY, §DOMAIN-WHITELIST, §UI-USER-CHOICE, §FRONTMATTER, §RULE-EXTERNAL-MENTION, §TOPIC-SUGGEST-FLOW                                            |
