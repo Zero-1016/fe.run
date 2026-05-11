@@ -1,7 +1,26 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+
+/** 마운트 전·후 동일한 첫 프레임(스켈레톤)으로 hydration 맞춘 뒤, 오프라인이면 코드만 표시 */
+function useMountedOnline(): { mounted: boolean; online: boolean } {
+  const [state, setState] = useState({ mounted: false, online: true });
+
+  useEffect(() => {
+    setState({ mounted: true, online: navigator.onLine });
+    const onUp = () => setState((s) => ({ ...s, online: true }));
+    const onDown = () => setState((s) => ({ ...s, online: false }));
+    window.addEventListener("online", onUp);
+    window.addEventListener("offline", onDown);
+    return () => {
+      window.removeEventListener("online", onUp);
+      window.removeEventListener("offline", onDown);
+    };
+  }, []);
+
+  return state;
+}
 
 function subscribeDarkClass(callback: () => void) {
   const observer = new MutationObserver(callback);
@@ -182,6 +201,34 @@ function buildFiles(code: string, template: Template, css?: string): BuiltPlaygr
   };
 }
 
+function OfflineCodePlaygroundView({ built }: { built: BuiltPlayground }) {
+  const fromVisible = (built.visibleFiles ?? []).filter((p) => p in built.files);
+  const paths =
+    fromVisible.length > 0
+      ? fromVisible
+      : built.activeFile && built.activeFile in built.files
+        ? [built.activeFile]
+        : Object.keys(built.files);
+
+  return (
+    <div className="my-6 overflow-hidden rounded-lg border border-border bg-background">
+      <div className="border-b border-border bg-code-bg px-3 py-2 text-xs text-secondary">
+        오프라인 · Sandpack 미리보기 비활성 · 코드만 표시됩니다
+      </div>
+      {paths.map((path) => (
+        <div key={path} className="border-b border-border last:border-b-0">
+          <div className="border-b border-border px-3 py-1.5 font-mono text-xs text-secondary">
+            {path}
+          </div>
+          <pre className="m-0 max-h-[min(70vh,520px)] overflow-auto bg-code-bg p-4 font-mono text-sm leading-relaxed text-foreground whitespace-pre">
+            <code>{built.files[path] ?? ""}</code>
+          </pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function CodePlayground({
   code,
   css,
@@ -191,6 +238,21 @@ export function CodePlayground({
   const built = buildFiles(code, template, css);
   const shouldShowPreview = showPreview && built.showPreview;
   const isDark = useIsDark();
+  const { mounted, online } = useMountedOnline();
+
+  if (!mounted) {
+    return (
+      <div
+        className="my-6 min-h-[260px] overflow-hidden rounded-lg border border-border bg-code-bg/40"
+        aria-busy="true"
+        aria-label="코드 에디터 로딩"
+      />
+    );
+  }
+
+  if (!online) {
+    return <OfflineCodePlaygroundView built={built} />;
+  }
 
   return (
     <div className="my-6 overflow-hidden rounded-lg border border-border">
