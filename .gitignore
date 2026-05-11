@@ -78,3 +78,8 @@ content/posts/.tmp/
 
 # claude
 CLAUDE.local.md
+
+# service worker (pnpm build-sw / prepare)
+/public/sw.js
+lib/sw-precache.generated.ts
+lib/sw-offline-html.generated.ts
