@@ -27,6 +27,7 @@ export function RecommendBubble({ posts }: { posts: RecommendCandidate[] }) {
   const [index, setIndex] = useState(0);
   const [shown, setShown] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (posts.length === 0) return;
@@ -44,7 +45,7 @@ export function RecommendBubble({ posts }: { posts: RecommendCandidate[] }) {
   const current = order[index];
   if (!current) return null;
 
-  const handleClose = () => {
+  const handleDismiss = () => {
     setVisible(false);
     window.setTimeout(() => setShown(false), FADE_OUT_MS);
     try {
@@ -52,21 +53,56 @@ export function RecommendBubble({ posts }: { posts: RecommendCandidate[] }) {
     } catch {}
   };
 
+  const handleExpand = () => setExpanded(true);
+  const handleCollapse = () => setExpanded(false);
+
   const handleNext = () => {
     setIndex((i) => (i + 1) % order.length);
   };
 
   return (
     <div
-      className="pointer-events-none fixed right-4 bottom-20 z-40 sm:right-6"
+      className="pointer-events-none fixed right-4 top-20 z-40 sm:right-6"
       role="complementary"
       aria-label="추천 글"
     >
-      <div
-        className="pointer-events-auto relative w-[min(20rem,calc(100vw-2rem))] origin-bottom-right"
+      <button
+        type="button"
+        onClick={handleExpand}
+        aria-label={`추천 글 열기: ${current.title}`}
+        aria-expanded={expanded}
+        className="group/icon absolute right-0 top-0 grid h-10 w-10 cursor-pointer place-items-center rounded-full border border-border bg-background/95 shadow-[0_6px_20px_-8px_rgba(0,0,0,0.18)] backdrop-blur-sm hover:border-accent/60 dark:bg-[#111113]/95 dark:shadow-[0_6px_20px_-8px_rgba(0,0,0,0.55)]"
         style={{
-          opacity: visible ? 1 : 0,
-          transform: visible ? "translateY(0) scale(1)" : "translateY(8px) scale(0.96)",
+          opacity: visible && !expanded ? 1 : 0,
+          transform: visible && !expanded ? "scale(1)" : "scale(0.85)",
+          pointerEvents: visible && !expanded ? "auto" : "none",
+          transition:
+            "opacity 200ms ease-out, transform 200ms ease-out, border-color 160ms ease-out",
+        }}
+      >
+        <span
+          aria-hidden
+          className="recommend-bubble__pulse pointer-events-none absolute -inset-px rounded-full border border-accent/55"
+        />
+        <span
+          aria-hidden
+          className="relative text-[13px] leading-none text-accent transition-transform group-hover/icon:scale-110"
+        >
+          ✦
+        </span>
+        <span
+          aria-hidden
+          className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent ring-2 ring-background dark:ring-[#111113]"
+        />
+      </button>
+
+      <div
+        className="absolute right-0 top-0 w-[min(20rem,calc(100vw-2rem))] origin-top-right"
+        style={{
+          opacity: visible && expanded ? 1 : 0,
+          transform:
+            visible && expanded ? "translateY(0) scale(1)" : "translateY(-8px) scale(0.96)",
+          pointerEvents: visible && expanded ? "auto" : "none",
           transition: "opacity 220ms ease-out, transform 220ms ease-out",
         }}
       >
@@ -75,21 +111,39 @@ export function RecommendBubble({ posts }: { posts: RecommendCandidate[] }) {
             <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-accent">
               <span aria-hidden>✦</span>이 글은 어떠세요?
             </span>
-            <button
-              type="button"
-              onClick={handleClose}
-              aria-label="추천 닫기"
-              className="-mr-1 -mt-1 grid h-7 w-7 cursor-pointer place-items-center rounded-full text-secondary transition-colors hover:bg-card-hover hover:text-foreground"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path
-                  d="M2.5 2.5l7 7M9.5 2.5l-7 7"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+            <div className="-mt-1 -mr-1 flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={handleCollapse}
+                aria-label="추천 접기"
+                className="grid h-7 w-7 cursor-pointer place-items-center rounded-full text-secondary transition-colors hover:bg-card-hover hover:text-foreground"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                  <path
+                    d="M2 8l4-4 4 4"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={handleDismiss}
+                aria-label="추천 닫기"
+                className="grid h-7 w-7 cursor-pointer place-items-center rounded-full text-secondary transition-colors hover:bg-card-hover hover:text-foreground"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                  <path
+                    d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <Link
@@ -142,7 +196,7 @@ export function RecommendBubble({ posts }: { posts: RecommendCandidate[] }) {
         </div>
         <span
           aria-hidden
-          className="absolute right-6 -bottom-[5px] h-[10px] w-[10px] rotate-45 border-r border-b border-border bg-background/95 dark:bg-[#111113]/95"
+          className="absolute right-6 -top-[5px] h-[10px] w-[10px] rotate-45 border-t border-l border-border bg-background/95 dark:bg-[#111113]/95"
         />
       </div>
     </div>

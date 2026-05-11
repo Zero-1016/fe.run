@@ -312,3 +312,17 @@ body {
 .search-panel-out {
   animation: search-slide-out 150ms ease-in both;
 }
+
+@keyframes recommend-bubble-pulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+.recommend-bubble__pulse {
+  animation: recommend-bubble-pulse 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
