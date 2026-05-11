@@ -25,6 +25,23 @@ async function matchCached(request: Request): Promise<Response | undefined> {
   return (await caches.match(request)) ?? (await caches.match(corsDocumentRequest(request.url)));
 }
 
+async function hasAnyNextStaticCached(): Promise<boolean> {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    const keys = await cache.keys();
+    return keys.some((req) => {
+      try {
+        const url = new URL(req.url);
+        return url.origin === self.location.origin && url.pathname.startsWith("/_next/static/");
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
 async function offlineDocumentResponse(): Promise<Response> {
   const offlineUrl = `${self.location.origin}/offline.html`;
   const cached =
@@ -49,6 +66,28 @@ async function precacheEach(cache: Cache, urls: readonly string[]): Promise<void
   }
 }
 
+async function cacheRuntimeUrls(urls: readonly string[]): Promise<void> {
+  const normalized = urls
+    .map((u) => {
+      try {
+        const url = new URL(u, self.location.origin);
+        if (url.origin !== self.location.origin) return null;
+        if (!url.pathname.startsWith("/_next/static/")) return null;
+        if (!url.pathname.endsWith(".css")) return null;
+        return url.pathname + url.search;
+      } catch {
+        return null;
+      }
+    })
+    .filter((u): u is string => Boolean(u));
+
+  if (normalized.length === 0) return;
+
+  const unique = Array.from(new Set(normalized)).slice(0, 12);
+  const cache = await caches.open(CACHE_NAME);
+  await precacheEach(cache, unique);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
@@ -67,6 +106,20 @@ self.addEventListener("activate", (event) => {
       await self.clients.claim();
     })()
   );
+});
+
+/** 업데이트 알림 토스트에서 즉시 적용을 요청할 때 사용 */
+self.addEventListener("message", (event) => {
+  const data = event.data as unknown;
+  if (!data || typeof data !== "object") return;
+  const type = "type" in data ? (data as { type?: unknown }).type : undefined;
+  if (type === "SKIP_WAITING") void self.skipWaiting();
+  if (type === "CACHE_URLS") {
+    const urls = "urls" in data ? (data as { urls?: unknown }).urls : undefined;
+    if (Array.isArray(urls) && urls.every((u) => typeof u === "string")) {
+      void cacheRuntimeUrls(urls);
+    }
+  }
 });
 
 /** 온라인: 네트워크 우선 후 캐시 갱신. 오프라인·실패 시 캐시. */
@@ -89,6 +142,12 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         const cached = await matchCached(request);
         if (cached) {
+          if (isDocumentNavigation) {
+            const hasNextStatic = await hasAnyNextStaticCached();
+            if (!hasNextStatic) {
+              return offlineDocumentResponse();
+            }
+          }
           return cached;
         }
         if (isDocumentNavigation) {
@@ -104,6 +163,47 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // 문서(HTML) 이동은 SWR: 캐시 즉시 반환 + 백그라운드 갱신
+  if (isDocumentNavigation) {
+    event.respondWith(
+      (async () => {
+        const cached = await matchCached(request);
+
+        const updateCache = (async () => {
+          try {
+            const response = await fetch(request);
+            if (!response.ok) return;
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone());
+            await cache.put(corsDocumentRequest(request.url), response.clone());
+          } catch {
+            // ignore
+          }
+        })();
+
+        event.waitUntil(updateCache);
+
+        if (cached) {
+          return cached;
+        }
+
+        // 캐시가 없으면 네트워크 결과를 기다렸다가, 실패 시 오프라인 페이지로
+        try {
+          const response = await fetch(request);
+          if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone());
+            await cache.put(corsDocumentRequest(request.url), response.clone());
+          }
+          return response;
+        } catch {
+          return offlineDocumentResponse();
+        }
+      })()
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(request)
       .then(async (response) => {
@@ -111,22 +211,13 @@ self.addEventListener("fetch", (event) => {
           return response;
         }
         const cache = await caches.open(CACHE_NAME);
-
-        if (isDocumentNavigation) {
-          await cache.put(request, response.clone());
-          await cache.put(corsDocumentRequest(request.url), response.clone());
-        } else {
-          await cache.put(request, response.clone());
-        }
+        await cache.put(request, response.clone());
         return response;
       })
       .catch(async () => {
         const cached = await matchCached(request);
         if (cached) {
           return cached;
-        }
-        if (isDocumentNavigation) {
-          return offlineDocumentResponse();
         }
         return new Response("오프라인이며 캐시에 없습니다.", {
           status: 503,
