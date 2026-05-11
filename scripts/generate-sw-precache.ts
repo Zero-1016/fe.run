@@ -1,10 +1,16 @@
-import { readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const motifsDir = join(root, "public/banners/motifs");
+const offlineHtmlPath = join(root, "public/offline.html");
 const precacheOut = join(root, "lib/sw-precache.generated.ts");
+const offlineInlineOut = join(root, "lib/sw-offline-html.generated.ts");
+
+function toTemplateLiteralBody(source: string): string {
+  return source.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+}
 
 function motifUrls(): string[] {
   return readdirSync(motifsDir)
@@ -15,6 +21,7 @@ function motifUrls(): string[] {
 
 function main() {
   const motifs = motifUrls();
+  const offlineHtml = readFileSync(offlineHtmlPath, "utf-8");
 
   writeFileSync(
     precacheOut,
@@ -22,7 +29,14 @@ function main() {
       `export const SW_PRECACHE_MOTIFS: readonly string[] = ${JSON.stringify(motifs, null, 2)};\n`
   );
 
+  writeFileSync(
+    offlineInlineOut,
+    `// Auto-generated from public/offline.html by scripts/generate-sw-precache.ts — do not edit.\n` +
+      `export const SW_OFFLINE_HTML_INLINE = \`${toTemplateLiteralBody(offlineHtml)}\`;\n`
+  );
+
   console.log(`Wrote ${motifs.length} motif URLs → lib/sw-precache.generated.ts`);
+  console.log(`Wrote SW inline offline HTML → lib/sw-offline-html.generated.ts`);
 }
 
 main();
