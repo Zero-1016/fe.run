@@ -4,6 +4,7 @@ import { Footer } from "@/components/layout/footer";
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
 import { siteConfig, SITE_URL } from "@/lib/site";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/layout/service-worker-register";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -99,6 +100,7 @@ export default function RootLayout({
         </main>
         <Footer />
         <ScrollToTop />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

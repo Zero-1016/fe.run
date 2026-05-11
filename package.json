@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --webpack",
     "prebuild": "tsx scripts/generate-seo.ts",
-    "build": "next build --webpack",
+    "build": "pnpm build-sw && next build --webpack",
+    "build-sw": "esbuild lib/sw.ts --bundle --outfile=public/sw.js",
     "seo:generate": "tsx scripts/generate-seo.ts",
     "indexnow": "tsx scripts/indexnow-ping.ts",
     "start": "next start",
@@ -37,6 +38,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "prettier": "^3.8.2",

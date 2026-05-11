@@ -78,3 +78,6 @@ content/posts/.tmp/
 
 # claude
 CLAUDE.local.md
+
+# service worker
+/public/sw.js
