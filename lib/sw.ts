@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+/** 문서는 네트워크 우선 + HTML·/_next/static 묶음 캐시. 메모: docs/service-worker-caching.md */
 
 export {};
 
@@ -25,21 +26,62 @@ async function matchCached(request: Request): Promise<Response | undefined> {
   return (await caches.match(request)) ?? (await caches.match(corsDocumentRequest(request.url)));
 }
 
-async function hasAnyNextStaticCached(): Promise<boolean> {
-  try {
-    const cache = await caches.open(CACHE_NAME);
-    const keys = await cache.keys();
-    return keys.some((req) => {
+/** HTML에 등장하는 동일 출처 `/_next/static/*` 경로(쿼리 포함) */
+function extractNextStaticRefsFromHtml(html: string): string[] {
+  const paths = new Set<string>();
+  const origin = self.location.origin;
+
+  const linkRe = /<link\b[^>]*\bhref\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  const scriptRe = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+
+  for (const re of [linkRe, scriptRe]) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) {
+      const raw = m[1];
+      if (!raw) continue;
       try {
-        const url = new URL(req.url);
-        return url.origin === self.location.origin && url.pathname.startsWith("/_next/static/");
+        const u = new URL(raw, origin);
+        if (u.origin !== self.location.origin) continue;
+        if (!u.pathname.startsWith("/_next/static/")) continue;
+        paths.add(u.pathname + u.search);
       } catch {
-        return false;
+        /* ignore */
       }
-    });
+    }
+  }
+
+  return Array.from(paths);
+}
+
+async function precacheNextStaticBundle(paths: readonly string[]): Promise<void> {
+  const unique = Array.from(new Set(paths)).slice(0, 80);
+  if (unique.length === 0) return;
+  const cache = await caches.open(CACHE_NAME);
+  await precacheEach(cache, unique);
+}
+
+/** 캐시된 문서 HTML이 가리키는 `/_next/static` 자산이 모두 캐시에 있을 때만 true */
+async function documentBundleFullyCached(cachedDocument: Response): Promise<boolean> {
+  let html: string;
+  try {
+    html = await cachedDocument.clone().text();
   } catch {
     return false;
   }
+
+  const paths = extractNextStaticRefsFromHtml(html);
+  if (paths.length === 0) {
+    return false;
+  }
+
+  for (const path of paths) {
+    const url = new URL(path, self.location.origin).href;
+    const hit = await matchCached(new Request(url));
+    if (!hit) return false;
+  }
+
+  return true;
 }
 
 async function offlineDocumentResponse(): Promise<Response> {
@@ -73,7 +115,7 @@ async function cacheRuntimeUrls(urls: readonly string[]): Promise<void> {
         const url = new URL(u, self.location.origin);
         if (url.origin !== self.location.origin) return null;
         if (!url.pathname.startsWith("/_next/static/")) return null;
-        if (!url.pathname.endsWith(".css")) return null;
+        if (!/\.(css|js)$/.test(url.pathname)) return null;
         return url.pathname + url.search;
       } catch {
         return null;
@@ -83,7 +125,7 @@ async function cacheRuntimeUrls(urls: readonly string[]): Promise<void> {
 
   if (normalized.length === 0) return;
 
-  const unique = Array.from(new Set(normalized)).slice(0, 12);
+  const unique = Array.from(new Set(normalized)).slice(0, 24);
   const cache = await caches.open(CACHE_NAME);
   await precacheEach(cache, unique);
 }
@@ -143,8 +185,8 @@ self.addEventListener("fetch", (event) => {
         const cached = await matchCached(request);
         if (cached) {
           if (isDocumentNavigation) {
-            const hasNextStatic = await hasAnyNextStaticCached();
-            if (!hasNextStatic) {
+            const bundleOk = await documentBundleFullyCached(cached);
+            if (!bundleOk) {
               return offlineDocumentResponse();
             }
           }
@@ -163,40 +205,25 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 문서(HTML) 이동은 SWR: 캐시 즉시 반환 + 백그라운드 갱신
+  // 문서(HTML) 이동: 네트워크 우선(SWR 미적용). 성공 시 HTML + 본문이 가리키는 /_next/static 묶음 캐시. 실패 시 번들이 맞는 캐시만.
   if (isDocumentNavigation) {
     event.respondWith(
       (async () => {
-        const cached = await matchCached(request);
-
-        const updateCache = (async () => {
-          try {
-            const response = await fetch(request);
-            if (!response.ok) return;
-            const cache = await caches.open(CACHE_NAME);
-            await cache.put(request, response.clone());
-            await cache.put(corsDocumentRequest(request.url), response.clone());
-          } catch {
-            // ignore
-          }
-        })();
-
-        event.waitUntil(updateCache);
-
-        if (cached) {
-          return cached;
-        }
-
-        // 캐시가 없으면 네트워크 결과를 기다렸다가, 실패 시 오프라인 페이지로
         try {
           const response = await fetch(request);
           if (response.ok) {
+            const html = await response.clone().text();
             const cache = await caches.open(CACHE_NAME);
             await cache.put(request, response.clone());
             await cache.put(corsDocumentRequest(request.url), response.clone());
+            await precacheNextStaticBundle(extractNextStaticRefsFromHtml(html));
           }
           return response;
         } catch {
+          const cached = await matchCached(request);
+          if (cached && (await documentBundleFullyCached(cached))) {
+            return cached;
+          }
           return offlineDocumentResponse();
         }
       })()
