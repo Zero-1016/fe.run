@@ -1,25 +1,28 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 /** 마운트 전·후 동일한 첫 프레임(스켈레톤)으로 hydration 맞춘 뒤, 오프라인이면 코드만 표시 */
 function useMountedOnline(): { mounted: boolean; online: boolean } {
-  const [state, setState] = useState({ mounted: false, online: true });
-
-  useEffect(() => {
-    setState({ mounted: true, online: navigator.onLine });
-    const onUp = () => setState((s) => ({ ...s, online: true }));
-    const onDown = () => setState((s) => ({ ...s, online: false }));
-    window.addEventListener("online", onUp);
-    window.addEventListener("offline", onDown);
-    return () => {
-      window.removeEventListener("online", onUp);
-      window.removeEventListener("offline", onDown);
-    };
-  }, []);
-
-  return state;
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+  const online = useSyncExternalStore(
+    (callback) => {
+      window.addEventListener("online", callback);
+      window.addEventListener("offline", callback);
+      return () => {
+        window.removeEventListener("online", callback);
+        window.removeEventListener("offline", callback);
+      };
+    },
+    () => navigator.onLine,
+    () => true
+  );
+  return { mounted, online };
 }
 
 function subscribeDarkClass(callback: () => void) {
