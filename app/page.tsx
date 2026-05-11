@@ -4,10 +4,8 @@ import { Hero } from "@/components/ui/hero";
 import { type PostEntry, type PostItem, type SeriesGroup } from "@/components/ui/post-list";
 import { PostGrid } from "@/components/ui/post-grid";
 import { RecommendBubble, type RecommendCandidate } from "@/components/ui/recommend-bubble";
+import { getPopularTagEntries } from "@/lib/popular-tags";
 import { siteConfig, SITE_URL } from "@/lib/site";
-
-const POPULAR_TAG_MIN_COUNT = 3;
-const POPULAR_TAG_LIMIT = 8;
 
 type Group =
   | { kind: "single"; date: number; post: (typeof posts)[number] }
@@ -45,17 +43,7 @@ export default function Home() {
     }
   }
 
-  const tagCounts = new Map<string, number>();
-  for (const post of posts) {
-    if (!post.published) continue;
-    for (const tag of post.tags) {
-      tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-    }
-  }
-  const popularTags = [...tagCounts.entries()]
-    .filter(([, count]) => count >= POPULAR_TAG_MIN_COUNT)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, POPULAR_TAG_LIMIT);
+  const popularTags = getPopularTagEntries(posts);
 
   const toPostItem = (p: (typeof posts)[number]): PostItem => ({
     slug: p.slug,
