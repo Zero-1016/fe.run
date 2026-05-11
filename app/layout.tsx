@@ -4,6 +4,7 @@ import { Footer } from "@/components/layout/footer";
 import { ScrollToTop } from "@/components/ui/scroll-to-top";
 import { siteConfig, SITE_URL } from "@/lib/site";
 import "./globals.css";
+import { OfflineFullNavigation } from "@/components/layout/offline-full-navigation";
 import { ServiceWorkerRegister } from "@/components/layout/service-worker-register";
 
 export const metadata: Metadata = {
@@ -100,6 +101,7 @@ export default function RootLayout({
         </main>
         <Footer />
         <ScrollToTop />
+        <OfflineFullNavigation />
         <ServiceWorkerRegister />
       </body>
     </html>
