@@ -34,13 +34,14 @@
       * {
         box-sizing: border-box;
       }
-      html,
-      body {
+      html {
         height: 100%;
+        background: var(--page-bg);
       }
       body {
         margin: 0;
-        min-height: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
         font-family:
           ui-sans-serif,
           system-ui,
@@ -52,10 +53,9 @@
           sans-serif;
         color: var(--text);
         background: var(--page-bg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: clamp(20px, 4vw, 40px);
+        display: grid;
+        place-items: center;
+        padding: clamp(16px, 4vw, 40px);
         line-height: 1.65;
         word-break: keep-all;
         -webkit-font-smoothing: antialiased;
@@ -104,7 +104,7 @@
         z-index: 1;
         width: 100%;
         max-width: 400px;
-        padding: clamp(28px, 5vw, 36px);
+        padding: clamp(20px, 4.5vw, 36px);
         border-radius: 20px;
         background: var(--surface);
         border: 1px solid var(--stroke);
@@ -123,10 +123,10 @@
         }
       }
       .mark {
-        width: 56px;
-        height: 56px;
-        margin: 0 auto 20px;
-        border-radius: 16px;
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 14px;
+        border-radius: 14px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -134,18 +134,18 @@
         border: 1px solid var(--stroke);
       }
       .mark svg {
-        width: 28px;
-        height: 28px;
+        width: 24px;
+        height: 24px;
         color: var(--accent);
       }
       h1 {
-        margin: 0 0 10px;
-        font-size: clamp(1.25rem, 4vw, 1.4rem);
+        margin: 0 0 8px;
+        font-size: clamp(1.2rem, 4vw, 1.4rem);
         font-weight: 700;
         letter-spacing: -0.02em;
       }
       p {
-        margin: 0 0 24px;
+        margin: 0 0 20px;
         font-size: 0.9375rem;
         color: var(--muted);
       }
@@ -200,12 +200,121 @@
         color: #fff;
       }
       .hint {
-        margin-top: 20px;
-        padding-top: 20px;
+        margin-top: 16px;
+        padding-top: 16px;
         border-top: 1px solid var(--stroke);
         font-size: 0.75rem;
         color: var(--muted);
         line-height: 1.5;
+      }
+      .cached {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--stroke);
+        text-align: left;
+      }
+      .cached-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 10px;
+      }
+      .cached-title {
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0;
+      }
+      .cached-count {
+        font-size: 0.7rem;
+        font-feature-settings: "tnum";
+        color: var(--muted);
+      }
+      .cached-scroll {
+        position: relative;
+        /* 카드 위 고정 영역(약 380px) + 외부 여백을 빼고 남는 만큼.
+           min 140px 부터 max 280px 사이에서 뷰포트에 맞춰 자동 조절. */
+        max-height: clamp(140px, calc(100dvh - 460px), 280px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-radius: 12px;
+        border: 1px solid var(--stroke);
+        background: rgba(15, 23, 42, 0.02);
+      }
+      @media (prefers-color-scheme: dark) {
+        .cached-scroll {
+          background: rgba(148, 163, 184, 0.04);
+        }
+      }
+      .cached-scroll::-webkit-scrollbar {
+        width: 8px;
+      }
+      .cached-scroll::-webkit-scrollbar-thumb {
+        background: rgba(100, 116, 139, 0.3);
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .cached-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(100, 116, 139, 0.5);
+        background-clip: padding-box;
+        border: 2px solid transparent;
+      }
+      .cached-list {
+        list-style: none;
+        margin: 0;
+        padding: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .cached-list li a {
+        display: block;
+        padding: 8px 10px;
+        border-radius: 8px;
+        color: var(--text);
+        text-decoration: none;
+        border: 1px solid transparent;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+      .cached-list li a:hover {
+        background: rgba(37, 99, 235, 0.06);
+        border-color: rgba(37, 99, 235, 0.18);
+      }
+      @media (prefers-color-scheme: dark) {
+        .cached-list li a:hover {
+          background: rgba(96, 165, 250, 0.08);
+          border-color: rgba(96, 165, 250, 0.2);
+        }
+      }
+      .cached-item-title {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.35;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .cached-item-desc {
+        display: block;
+        font-size: 0.75rem;
+        line-height: 1.4;
+        color: var(--muted);
+        margin-top: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .cached-empty {
+        font-size: 0.8125rem;
+        color: var(--muted);
+        margin: 0;
       }
     </style>
   </head>
@@ -242,7 +351,145 @@
         <button type="button" class="btn btn-primary" onclick="location.reload()">다시 시도</button>
         <a class="btn" href="/">홈으로</a>
       </div>
+      <section class="cached" id="cached" hidden>
+        <div class="cached-header">
+          <h2 class="cached-title">저장된 페이지</h2>
+          <span class="cached-count" id="cached-count"></span>
+        </div>
+        <p class="cached-empty" id="cached-empty">저장된 페이지를 찾는 중…</p>
+        <div class="cached-scroll" id="cached-scroll" hidden>
+          <ul class="cached-list" id="cached-list"></ul>
+        </div>
+      </section>
       <p class="hint">오프라인에서는 이미 방문한 페이지와 저장된 자산만 불러올 수 있어요.</p>
     </main>
+    <script>
+      (function () {
+        if (!("caches" in window)) return;
+        var section = document.getElementById("cached");
+        var list = document.getElementById("cached-list");
+        var scroll = document.getElementById("cached-scroll");
+        var empty = document.getElementById("cached-empty");
+        var countEl = document.getElementById("cached-count");
+        if (!section || !list || !scroll || !empty || !countEl) return;
+        section.hidden = false;
+
+        var CONTENT_PREFIX = ["/posts/", "/tags/", "/series/"];
+
+        function isContentPath(pathname) {
+          if (!pathname) return false;
+          for (var i = 0; i < CONTENT_PREFIX.length; i++) {
+            if (pathname.indexOf(CONTENT_PREFIX[i]) === 0) return true;
+          }
+          return false;
+        }
+
+        var SUFFIX_RE = /\s+[|—–]\s+Tech Blog\s*$/;
+
+        function stripSiteSuffix(raw) {
+          if (!raw) return "";
+          return raw.replace(SUFFIX_RE, "").trim();
+        }
+
+        function extractTitle(html) {
+          var m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+          if (!m) return "";
+          return stripSiteSuffix(m[1].replace(/\s+/g, " "));
+        }
+
+        function decodeEntities(s) {
+          return s
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'");
+        }
+
+        function extractDescription(html) {
+          var head = html.slice(0, 8000);
+          var re = /<meta\s+[^>]*name=["']description["'][^>]*>/i;
+          var tag = re.exec(head);
+          if (!tag) {
+            re = /<meta\s+[^>]*property=["']og:description["'][^>]*>/i;
+            tag = re.exec(head);
+          }
+          if (!tag) return "";
+          var content = /content=["']([\s\S]*?)["']/i.exec(tag[0]);
+          if (!content) return "";
+          return stripSiteSuffix(decodeEntities(content[1].replace(/\s+/g, " ").trim()));
+        }
+
+        async function collect() {
+          var keys = await caches.keys();
+          var origin = location.origin;
+          var seen = Object.create(null);
+          var items = [];
+          for (var i = 0; i < keys.length; i++) {
+            var cache = await caches.open(keys[i]);
+            var requests = await cache.keys();
+            for (var j = 0; j < requests.length; j++) {
+              var req = requests[j];
+              var url;
+              try {
+                url = new URL(req.url);
+              } catch (e) {
+                continue;
+              }
+              if (url.origin !== origin) continue;
+              if (!isContentPath(url.pathname)) continue;
+              if (seen[url.pathname]) continue;
+              seen[url.pathname] = true;
+              try {
+                var res = await cache.match(req);
+                if (!res) continue;
+                var text = await res.clone().text();
+                var title = extractTitle(text) || url.pathname;
+                var description = extractDescription(text);
+                items.push({ pathname: url.pathname, title: title, description: description });
+              } catch (e) {
+                /* ignore */
+              }
+            }
+          }
+          items.sort(function (a, b) {
+            return a.title.localeCompare(b.title, "ko");
+          });
+          return items;
+        }
+
+        collect()
+          .then(function (items) {
+            if (items.length === 0) {
+              empty.textContent =
+                "아직 저장된 페이지가 없어요. 온라인에서 한 번 열어둔 페이지가 여기에 모입니다.";
+              return;
+            }
+            empty.hidden = true;
+            scroll.hidden = false;
+            countEl.textContent = items.length + "개";
+            for (var i = 0; i < items.length; i++) {
+              var li = document.createElement("li");
+              var a = document.createElement("a");
+              a.href = items[i].pathname;
+              var titleSpan = document.createElement("span");
+              titleSpan.className = "cached-item-title";
+              titleSpan.textContent = items[i].title;
+              a.appendChild(titleSpan);
+              if (items[i].description) {
+                var descSpan = document.createElement("span");
+                descSpan.className = "cached-item-desc";
+                descSpan.textContent = items[i].description;
+                a.appendChild(descSpan);
+              }
+              li.appendChild(a);
+              list.appendChild(li);
+            }
+          })
+          .catch(function () {
+            empty.textContent = "저장된 페이지를 불러오지 못했어요.";
+          });
+      })();
+    </script>
   </body>
 </html>
