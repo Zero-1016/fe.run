@@ -43,7 +43,9 @@ export default function Home() {
     }
   }
 
-  const popularTags = getPopularTagEntries(posts);
+  const popularTags = getPopularTagEntries(posts).filter(([tag]) =>
+    posts.some((p) => p.published && p.tags.includes(tag))
+  );
 
   const toPostItem = (p: (typeof posts)[number]): PostItem => ({
     slug: p.slug,

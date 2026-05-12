@@ -15,7 +15,7 @@ export function getPopularTagEntries(posts: PostForPopularTags[]): [string, numb
     }
   }
   return [...tagCounts.entries()]
-    .filter(([, count]) => count >= POPULAR_TAG_MIN_COUNT)
+    .filter(([, count]) => count > 0 && count >= POPULAR_TAG_MIN_COUNT)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, POPULAR_TAG_LIMIT);
 }
