@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { ThemeToggle } from "./theme-toggle";
 import { SearchButton } from "./search-button";
+import { SettingsIcon } from "./icons/settings-icon";
 
 export async function Header() {
   const ua = (await headers()).get("user-agent") ?? "";
@@ -16,6 +17,13 @@ export async function Header() {
         </Link>
         <div className="flex items-center gap-1">
           <SearchButton isMac={isMac} isMobile={isMobile} />
+          <Link
+            href="/settings"
+            aria-label="설정"
+            className="rounded-lg p-2 text-secondary transition-colors hover:bg-card-hover"
+          >
+            <SettingsIcon />
+          </Link>
           <ThemeToggle />
         </div>
       </div>
