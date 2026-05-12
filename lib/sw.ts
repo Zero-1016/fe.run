@@ -108,6 +108,65 @@ async function precacheEach(cache: Cache, urls: readonly string[]): Promise<void
   }
 }
 
+/** 클라이언트가 요청한 문서 URL들을 미리 캐시. fetch 리스너의 navigate 분기와 동일하게 HTML + /_next/static 번들을 묶음 캐시한다. */
+async function precacheDocuments(
+  urls: readonly string[],
+  source: Client | MessagePort | ServiceWorker | null
+): Promise<void> {
+  const targets = Array.from(
+    new Set(
+      urls
+        .map((raw) => {
+          try {
+            const u = new URL(raw, self.location.origin);
+            if (u.origin !== self.location.origin) return null;
+            return u.pathname + u.search;
+          } catch {
+            return null;
+          }
+        })
+        .filter((u): u is string => Boolean(u))
+    )
+  );
+
+  const total = targets.length;
+  let done = 0;
+  let failed = 0;
+  const cache = await caches.open(CACHE_NAME);
+
+  const notify = (type: "PRECACHE_PROGRESS" | "PRECACHE_COMPLETE") => {
+    try {
+      source?.postMessage({ type, done, total, failed });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  for (const path of targets) {
+    try {
+      const request = new Request(path, { credentials: "same-origin" });
+      const response = await fetch(request);
+      if (response.ok) {
+        const html = await response.clone().text();
+        await cache.put(request, response.clone());
+        await cache.put(
+          corsDocumentRequest(new URL(path, self.location.origin).href),
+          response.clone()
+        );
+        await precacheNextStaticBundle(extractNextStaticRefsFromHtml(html));
+      } else {
+        failed += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+    done += 1;
+    notify("PRECACHE_PROGRESS");
+  }
+
+  notify("PRECACHE_COMPLETE");
+}
+
 async function cacheRuntimeUrls(urls: readonly string[]): Promise<void> {
   const normalized = urls
     .map((u) => {
@@ -160,6 +219,12 @@ self.addEventListener("message", (event) => {
     const urls = "urls" in data ? (data as { urls?: unknown }).urls : undefined;
     if (Array.isArray(urls) && urls.every((u) => typeof u === "string")) {
       void cacheRuntimeUrls(urls);
+    }
+  }
+  if (type === "PRECACHE_DOCUMENTS") {
+    const urls = "urls" in data ? (data as { urls?: unknown }).urls : undefined;
+    if (Array.isArray(urls) && urls.every((u) => typeof u === "string")) {
+      void precacheDocuments(urls, event.source);
     }
   }
 });
