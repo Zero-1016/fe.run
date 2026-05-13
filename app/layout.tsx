@@ -7,6 +7,7 @@ import "./globals.css";
 import { OfflineFullNavigation } from "@/components/layout/offline-full-navigation";
 import { ServiceWorkerRegister } from "@/components/layout/service-worker-register";
 import { AppToaster } from "@/components/layout/app-toaster";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -105,6 +106,7 @@ export default function RootLayout({
         <OfflineFullNavigation />
         <AppToaster />
         <ServiceWorkerRegister />
+        <Analytics />
       </body>
     </html>
   );
