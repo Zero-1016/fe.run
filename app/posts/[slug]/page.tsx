@@ -82,14 +82,19 @@ export default async function PostPage({ params }: Props) {
   const postUrl = `${SITE_URL}/posts/${post.slug}`;
   const publishedIso = new Date(post.date).toISOString();
   const modifiedIso = publishedIso;
-  const ogImageUrl = `${SITE_URL}/og?title=${encodeURIComponent(post.title)}&description=${encodeURIComponent(post.description)}`;
+  const ogImageUrl = `${SITE_URL}/og/${post.slug}`;
 
   const blogPostingJsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
     headline: post.title,
     description: post.description,
-    image: [ogImageUrl],
+    image: {
+      "@type": "ImageObject",
+      url: ogImageUrl,
+      width: 1200,
+      height: 630,
+    },
     datePublished: publishedIso,
     dateModified: modifiedIso,
     author: {
