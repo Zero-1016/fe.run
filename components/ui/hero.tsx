@@ -12,8 +12,9 @@ export function Hero() {
             코드를 짜다 마주친 궁금한 것들을 하나씩 따라가며 정리합니다.
           </p>
         </div>
-        <div className="relative aspect-[16/5] w-full overflow-hidden max-md:pointer-events-none max-md:absolute max-md:inset-0 max-md:z-0 max-md:aspect-auto max-md:opacity-25">
+        <div className="relative aspect-16/5 w-full overflow-hidden max-md:pointer-events-none max-md:absolute max-md:inset-0 max-md:z-0 max-md:aspect-auto max-md:opacity-25">
           <Image
+            fetchPriority="high"
             src="/banners/home/hero_background.png"
             alt=""
             fill
