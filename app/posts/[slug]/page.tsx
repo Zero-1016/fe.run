@@ -37,6 +37,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const ogUrl = `/og/${post.slug}`;
   const canonical = `/posts/${post.slug}`;
   const publishedTime = new Date(post.date).toISOString();
+  const modifiedTime = publishedTime;
 
   return {
     title: post.title,
@@ -54,7 +55,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: post.title,
       description: post.description,
       publishedTime,
-      modifiedTime: publishedTime,
+      modifiedTime,
       authors: [siteConfig.author],
       tags: post.tags,
       section: post.series ?? (post.tags[0] || "Tech"),
@@ -80,6 +81,7 @@ export default async function PostPage({ params }: Props) {
 
   const postUrl = `${SITE_URL}/posts/${post.slug}`;
   const publishedIso = new Date(post.date).toISOString();
+  const modifiedIso = publishedIso;
   const ogImageUrl = `${SITE_URL}/og?title=${encodeURIComponent(post.title)}&description=${encodeURIComponent(post.description)}`;
 
   const blogPostingJsonLd = {
@@ -89,7 +91,7 @@ export default async function PostPage({ params }: Props) {
     description: post.description,
     image: [ogImageUrl],
     datePublished: publishedIso,
-    dateModified: publishedIso,
+    dateModified: modifiedIso,
     author: {
       "@type": "Person",
       name: siteConfig.author,

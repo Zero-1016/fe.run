@@ -64,25 +64,80 @@ export default async function TagPage({ params }: Props) {
 
   if (filtered.length === 0) notFound();
 
+  const pageUrl = `${SITE_URL}/tags/${encodeURIComponent(decoded)}`;
+  const pageTitle = `#${decoded}`;
+  const pageDescription = `${decoded} 태그가 붙은 ${filtered.length}개의 글 — ${siteConfig.name}`;
+
+  const collectionJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: pageTitle,
+    description: pageDescription,
+    url: pageUrl,
+    inLanguage: "ko-KR",
+    isPartOf: {
+      "@type": "WebSite",
+      name: siteConfig.name,
+      url: SITE_URL,
+    },
+  };
+
+  const itemListJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: pageTitle,
+    numberOfItems: filtered.length,
+    itemListElement: filtered.map((post, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${SITE_URL}/posts/${post.slug}`,
+      name: post.title,
+    })),
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "홈", item: SITE_URL },
+      { "@type": "ListItem", position: 2, name: "태그", item: `${SITE_URL}/#tags` },
+      { "@type": "ListItem", position: 3, name: pageTitle, item: pageUrl },
+    ],
+  };
+
   return (
-    <div className="mx-auto max-w-3xl px-6 py-16">
-      <header className="mb-10">
-        <p className="text-xs font-medium uppercase tracking-wider text-secondary">태그</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">#{decoded}</h1>
-        <p className="mt-2 text-secondary">{filtered.length}개의 글</p>
-      </header>
-      <PostList
-        posts={filtered.map((post) => ({
-          slug: post.slug,
-          title: post.title,
-          description: post.description,
-          date: post.date,
-          tags: post.tags,
-          cover: post.cover,
-          banner: post.banner,
-          charCount: post.charCount,
-        }))}
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}
       />
-    </div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
+      <div className="mx-auto max-w-3xl px-6 py-16">
+        <header className="mb-10">
+          <p className="text-xs font-medium uppercase tracking-wider text-secondary">태그</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">#{decoded}</h1>
+          <p className="mt-2 text-secondary">{filtered.length}개의 글</p>
+        </header>
+        <PostList
+          posts={filtered.map((post) => ({
+            slug: post.slug,
+            title: post.title,
+            description: post.description,
+            date: post.date,
+            tags: post.tags,
+            cover: post.cover,
+            banner: post.banner,
+            charCount: post.charCount,
+          }))}
+        />
+      </div>
+    </>
   );
 }

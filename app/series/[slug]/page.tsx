@@ -67,40 +67,97 @@ export default async function SeriesPage({ params }: Props) {
   const seriesPosts = getSeriesPosts(slug);
   if (seriesPosts.length === 0) notFound();
 
+  const pageUrl = `${SITE_URL}/series/${encodeURIComponent(slug)}`;
+  const pageTitle = `${slug} 시리즈`;
+  const pageDescription = `${slug}에 관한 ${seriesPosts.length}편의 글 모음 — ${siteConfig.name}`;
+
+  const collectionJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: pageTitle,
+    description: pageDescription,
+    url: pageUrl,
+    inLanguage: "ko-KR",
+    articleSection: slug,
+    isPartOf: {
+      "@type": "WebSite",
+      name: siteConfig.name,
+      url: SITE_URL,
+    },
+  };
+
+  const itemListJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: pageTitle,
+    numberOfItems: seriesPosts.length,
+    itemListOrder: "https://schema.org/ItemListOrderAscending",
+    itemListElement: seriesPosts.map((post, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      url: `${SITE_URL}/posts/${post.slug}`,
+      name: post.title,
+    })),
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "홈", item: SITE_URL },
+      { "@type": "ListItem", position: 2, name: "시리즈", item: `${SITE_URL}/#series` },
+      { "@type": "ListItem", position: 3, name: pageTitle, item: pageUrl },
+    ],
+  };
+
   return (
-    <div className="mx-auto max-w-3xl px-6 py-16">
-      <header className="mb-10">
-        <p className="text-xs font-medium uppercase tracking-wider text-secondary">시리즈</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">{slug}</h1>
-        <p className="mt-2 text-secondary">{seriesPosts.length}편</p>
-      </header>
-      <div className="flex flex-col gap-1">
-        {seriesPosts.map((post, i) => (
-          <Link
-            key={post.slug}
-            href={`/posts/${post.slug}`}
-            className="group -mx-3 rounded-xl px-3 py-4 transition-colors hover:bg-card-hover"
-          >
-            <article className="flex gap-4">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-code-bg text-sm font-semibold text-secondary">
-                {i + 1}
-              </span>
-              <div>
-                <h2 className="font-semibold tracking-tight group-hover:text-accent">
-                  {post.title}
-                </h2>
-                <p className="mt-1 text-sm text-secondary line-clamp-2">{post.description}</p>
-                <time
-                  dateTime={post.date}
-                  className="mt-1 block whitespace-nowrap text-xs text-secondary"
-                >
-                  {formatCardDate(post.date)}
-                </time>
-              </div>
-            </article>
-          </Link>
-        ))}
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
+      <div className="mx-auto max-w-3xl px-6 py-16">
+        <header className="mb-10">
+          <p className="text-xs font-medium uppercase tracking-wider text-secondary">시리즈</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{slug}</h1>
+          <p className="mt-2 text-secondary">{seriesPosts.length}편</p>
+        </header>
+        <div className="flex flex-col gap-1">
+          {seriesPosts.map((post, i) => (
+            <Link
+              key={post.slug}
+              href={`/posts/${post.slug}`}
+              className="group -mx-3 rounded-xl px-3 py-4 transition-colors hover:bg-card-hover"
+            >
+              <article className="flex gap-4">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-code-bg text-sm font-semibold text-secondary">
+                  {i + 1}
+                </span>
+                <div>
+                  <h2 className="font-semibold tracking-tight group-hover:text-accent">
+                    {post.title}
+                  </h2>
+                  <p className="mt-1 text-sm text-secondary line-clamp-2">{post.description}</p>
+                  <time
+                    dateTime={post.date}
+                    className="mt-1 block whitespace-nowrap text-xs text-secondary"
+                  >
+                    {formatCardDate(post.date)}
+                  </time>
+                </div>
+              </article>
+            </Link>
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

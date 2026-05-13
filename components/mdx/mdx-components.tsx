@@ -7,6 +7,7 @@ import { VideoEmbed } from "@/components/ui/video-embed";
 import { FlowDiagram } from "@/components/ui/flow-diagram";
 import { References } from "@/components/ui/references";
 import { Cite } from "@/components/ui/cite";
+import { FAQ } from "@/components/ui/faq";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { CodeBlock } from "@/components/mdx/code-block";
 
@@ -50,4 +51,5 @@ export const mdxComponents: MDXComponents = {
   FlowDiagram,
   References,
   Cite,
+  FAQ,
 };

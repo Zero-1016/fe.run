@@ -5,6 +5,66 @@
 
 ---
 
+## 2026-05-13 15:32
+
+### AEO 보강 — §RULE-LEAD-DIRECT 신설, §MDX-FAQ 추가, blog-writer/draft-review 통합
+
+**변경**:
+
+- SHARED.md: §RULE-FORBIDDEN-PATTERNS 묶음 안에 §RULE-LEAD-DIRECT 신설.
+  도입부 첫 단락에 "장면/질문 + 한 문장 핵심 답"을 모두 갖추도록 요구.
+- SHARED.md: §MDX-COMPONENTS JSX 예시 블록에 `<FAQ>` 사용 예시 추가.
+- SHARED.md: §MDX-FAQ 하위 섹션 신설. AEO 효과(FAQPage schema 자동 주입),
+  글당 1개 제한, question 독자 질문형, References 직전 배치 가이드.
+- blog-writer/SKILL.md: "전제" 의 §RULE-FORBIDDEN-PATTERNS 행에 §RULE-LEAD-DIRECT
+  포함 명시. Step 3 오프닝 단락 작성 가이드를 직접 답 패턴 중심으로 재구성.
+  Step 7 마무리에 FAQ 권장 가이드 추가. Step 8 자가 체크리스트에
+  §RULE-LEAD-DIRECT 항목 추가.
+- blog-draft-review/SKILL.md: description, "전제", "자동 수정 가능" 분류,
+  검사 흐름에 D6 추가. D5 다음 위치에 D6 (도입부 핵심 답 후보) 검사 본문 신설.
+- blog-write/SKILL.md: draft-review 결과 보고 템플릿 예시에 D6 항목 추가.
+
+**이유**:
+
+ChatGPT·Perplexity·Google AI Overview 같은 답변 엔진은 글의 첫 200~300자만 보고
+인용 여부를 결정합니다. 기존 도입부는 정황·경험 묘사 중심이라 답변 엔진이 글의
+주제를 잡지 못해 인용도가 낮았어요. AEO(Answer Engine Optimization) 측면에서
+도입부 패턴을 표준화하고, FAQPage schema 를 통해 Q&A 쌍을 직접 인용 가능하게
+만들었습니다. velite·JSON-LD·CollectionPage·BlogPosting 같은 코드 측 변경은
+별도로 (skill 영역 아님).
+
+**수정 유형**: 새 규칙 섹션 추가 + 기존 skill 통합
+
+**영향 범위**:
+
+- blog-writer: §RULE-LEAD-DIRECT 강제 적용. Step 3 패턴, Step 8 체크 항목.
+- blog-draft-review: D6 검사 항목 추가. 기획안 단계에서 핵심 답 후보 검증.
+- blog-write: D6 결과를 보고 템플릿에 노출.
+- blog-coherence-review, blog-expression-review: 다른 층이라 충돌 없음
+  (전자는 도입-결론 호응 E1, 후자는 표현 규칙).
+- 기존 86개 글: 위반으로 잡히지 않음 (validator/expression-review 가 §RULE-LEAD-DIRECT
+  를 검사하지 않으므로). 신규 글부터 적용.
+
+**백업**:
+
+- `.backups/SHARED-20260513-153246.md`
+- `.backups/blog-writer-SKILL-20260513-153246.md`
+- `.backups/blog-draft-review-SKILL-20260513-153246.md`
+- `.backups/blog-write-SKILL-20260513-153246.md`
+
+**관련 코드 변경 (참고, skill 외부)**:
+
+- `components/ui/faq.tsx` 신규 (FAQPage JSON-LD 자동 주입 컴포넌트)
+- `components/mdx/mdx-components.tsx` 에 FAQ 등록
+- `components/ui/CLAUDE.md` 에 FAQ 사용법 추가 (코드 레벨 SSOT)
+- `app/tags/[tag]/page.tsx` 에 CollectionPage + ItemList + BreadcrumbList JSON-LD
+- `app/series/[slug]/page.tsx` 에 동일 JSON-LD
+
+**재검증 결과**: 기존 글 영향 없음 (신규 규칙은 신규 글부터). FAQ 컴포넌트는 신규
+글 작성 시 선택적 사용. dev 서버에서 view-source 로 JSON-LD 주입 확인 권장.
+
+---
+
 ## 2026-05-10 12:44
 
 ### blog-topic-suggest 신설 — 외국·국내 테크 블로그 영감 기반 글감 추천
