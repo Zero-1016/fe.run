@@ -2,6 +2,7 @@
   "name": "tech-blog",
   "version": "0.2.0",
   "private": true,
+  "packageManager": "pnpm@11.1.2",
   "scripts": {
     "prepare": "pnpm build-sw",
     "dev": "next dev --webpack",
