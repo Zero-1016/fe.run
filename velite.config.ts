@@ -8,6 +8,7 @@ const posts = defineCollection({
     title: s.string().max(120),
     description: s.string().max(300),
     date: s.isodate(),
+    updated: s.isodate().optional(),
     tags: s.array(s.string()).default([]),
     series: s.string().optional(),
     seriesOrder: s.number().optional(),
@@ -23,6 +24,15 @@ const posts = defineCollection({
     charCount: s
       .custom<string | undefined>((i) => i === undefined || typeof i === "string")
       .transform((_, { meta }) => (meta.plain ?? "").replace(/\s/g, "").length),
+    excerpt: s
+      .custom<string | undefined>((i) => i === undefined || typeof i === "string")
+      .transform((_, { meta }) => {
+        const plain = (meta.plain ?? "").replace(/\s+/g, " ").trim();
+        if (plain.length <= 280) return plain;
+        const sliced = plain.slice(0, 280);
+        const lastSpace = sliced.lastIndexOf(" ");
+        return (lastSpace > 200 ? sliced.slice(0, lastSpace) : sliced).trim();
+      }),
     hasReferences: s
       .custom<string | undefined>((i) => i === undefined || typeof i === "string")
       .transform((_, { meta }) => (meta.content ?? "").includes("<References")),

@@ -105,7 +105,7 @@ export default async function SeriesPage({ params }: Props) {
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "홈", item: SITE_URL },
-      { "@type": "ListItem", position: 2, name: "시리즈", item: `${SITE_URL}/#series` },
+      { "@type": "ListItem", position: 2, name: "시리즈", item: `${SITE_URL}/series` },
       { "@type": "ListItem", position: 3, name: pageTitle, item: pageUrl },
     ],
   };

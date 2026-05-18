@@ -6,6 +6,7 @@ export interface PostMeta {
   title: string;
   description: string;
   date: string;
+  updated?: string;
   tags: string[];
   series?: string;
   published: boolean;
@@ -83,6 +84,7 @@ export function readPostsFromMdx(): PostMeta[] {
       title: String(fm.title ?? ""),
       description: String(fm.description ?? ""),
       date: String(fm.date ?? ""),
+      updated: fm.updated ? String(fm.updated) : undefined,
       tags: Array.isArray(fm.tags) ? (fm.tags as string[]) : [],
       series: fm.series ? String(fm.series) : undefined,
       published: fm.published !== false,

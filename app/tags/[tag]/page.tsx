@@ -100,7 +100,7 @@ export default async function TagPage({ params }: Props) {
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "홈", item: SITE_URL },
-      { "@type": "ListItem", position: 2, name: "태그", item: `${SITE_URL}/#tags` },
+      { "@type": "ListItem", position: 2, name: "태그", item: `${SITE_URL}/tags` },
       { "@type": "ListItem", position: 3, name: pageTitle, item: pageUrl },
     ],
   };

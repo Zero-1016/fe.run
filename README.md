@@ -1,9 +1,13 @@
 # tech-blog
 
-AI가 글을 쓰고, 개발자가 방향을 잡는 한국어 기술 블로그.
+[**frontend.run**](https://www.frontend.run) — AI가 글을 쓰고, 개발자가 방향을
+잡는 한국어 기술 블로그.
 
 궁금한 주제를 AI에게 던지면 코드 예제와 인터랙티브 요소를 담은 글이 생성됩니다.
 직접 쓰는 대신, 어떤 주제를 어떻게 다룰지 큐레이션하는 데 집중합니다.
+
+- 사이트: [https://www.frontend.run](https://www.frontend.run)
+- RSS: [https://www.frontend.run/feed.xml](https://www.frontend.run/feed.xml)
 
 ---
 
@@ -215,10 +219,6 @@ flowchart TD
 - **빌드**: velite (스키마 검증 + 빌드)
 - **인터랙티브 컴포넌트**: CodePlayground (Sandpack 기반)
 - **글 작성 파이프라인**: Claude Code skills (`.claude/skills/`)
-
-## 라이선스
-
-(프로젝트 라이선스 정보)
 
 ## 더 알아보기
 

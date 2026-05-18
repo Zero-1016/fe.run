@@ -3,6 +3,7 @@ declare module "#site/content" {
     title: string;
     description: string;
     date: string;
+    updated?: string;
     tags: string[];
     series?: string;
     seriesOrder?: number;
@@ -13,6 +14,7 @@ declare module "#site/content" {
     toc: { title: string; url: string; items: { title: string; url: string; items: never[] }[] }[];
     metadata: { wordCount: number; readingTime: number };
     charCount: number;
+    excerpt: string;
     hasReferences: boolean;
     body: string;
   }

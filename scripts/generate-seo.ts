@@ -23,53 +23,54 @@ function toIsoDate(value: string): string {
   return d.toISOString();
 }
 
+function postLastmod(p: PostMeta): string {
+  return toIsoDate(p.updated ?? p.date);
+}
+
 function buildSitemap(posts: PostMeta[]): string {
   const now = new Date().toISOString();
+  const latestSiteLastmod = posts.map(postLastmod).sort().pop() ?? now;
 
-  const urls: { loc: string; lastmod: string; changefreq: string; priority: string }[] = [
-    { loc: `${SITE_URL}/`, lastmod: now, changefreq: "daily", priority: "1.0" },
+  const urls: { loc: string; lastmod: string }[] = [
+    { loc: `${SITE_URL}/`, lastmod: latestSiteLastmod },
+    { loc: `${SITE_URL}/tags`, lastmod: latestSiteLastmod },
+    { loc: `${SITE_URL}/series`, lastmod: latestSiteLastmod },
   ];
-
-  const latestPost = posts
-    .map((p) => toIsoDate(p.date))
-    .sort()
-    .pop();
 
   for (const post of posts) {
     urls.push({
       loc: `${SITE_URL}/posts/${encodeURIComponent(post.slug)}`,
-      lastmod: toIsoDate(post.date),
-      changefreq: "monthly",
-      priority: "0.8",
+      lastmod: postLastmod(post),
     });
   }
 
-  const seriesSet = new Set<string>();
-  for (const post of posts) if (post.series) seriesSet.add(post.series);
-  for (const series of seriesSet) {
-    urls.push({
-      loc: `${SITE_URL}/series/${encodeURIComponent(series)}`,
-      lastmod: latestPost ?? now,
-      changefreq: "weekly",
-      priority: "0.6",
-    });
+  const seriesLatest = new Map<string, string>();
+  for (const post of posts) {
+    if (!post.series) continue;
+    const lm = postLastmod(post);
+    const prev = seriesLatest.get(post.series);
+    if (!prev || lm > prev) seriesLatest.set(post.series, lm);
+  }
+  for (const [series, lastmod] of seriesLatest) {
+    urls.push({ loc: `${SITE_URL}/series/${encodeURIComponent(series)}`, lastmod });
   }
 
-  const tagSet = new Set<string>();
-  for (const post of posts) post.tags.forEach((t) => tagSet.add(t));
-  for (const tag of tagSet) {
-    urls.push({
-      loc: `${SITE_URL}/tags/${encodeURIComponent(tag)}`,
-      lastmod: latestPost ?? now,
-      changefreq: "weekly",
-      priority: "0.5",
-    });
+  const tagLatest = new Map<string, string>();
+  for (const post of posts) {
+    const lm = postLastmod(post);
+    for (const tag of post.tags) {
+      const prev = tagLatest.get(tag);
+      if (!prev || lm > prev) tagLatest.set(tag, lm);
+    }
+  }
+  for (const [tag, lastmod] of tagLatest) {
+    urls.push({ loc: `${SITE_URL}/tags/${encodeURIComponent(tag)}`, lastmod });
   }
 
   const body = urls
     .map(
       (u) =>
-        `  <url>\n    <loc>${escapeXml(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n    <changefreq>${u.changefreq}</changefreq>\n    <priority>${u.priority}</priority>\n  </url>`
+        `  <url>\n    <loc>${escapeXml(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n  </url>`
     )
     .join("\n");
 
@@ -77,7 +78,32 @@ function buildSitemap(posts: PostMeta[]): string {
 }
 
 function buildRobots(): string {
-  return `User-agent: *\nAllow: /\n\nDisallow: /og\nDisallow: /api\n\nSitemap: ${SITE_URL}/sitemap.xml\nHost: ${SITE_URL}\n`;
+  return `User-agent: *\nAllow: /\n\nDisallow: /og\nDisallow: /api\n\nSitemap: ${SITE_URL}/sitemap.xml\n`;
+}
+
+function buildLlmsTxt(posts: PostMeta[]): string {
+  const sorted = [...posts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const lines: string[] = [
+    `# frontend.run`,
+    ``,
+    `> 코드를 짜다 마주친 궁금한 것들을 하나씩 따라가며 정리하는 프론트엔드 기록. React, CSS, 웹 표준, 성능과 접근성 노트를 다룹니다.`,
+    ``,
+    `- 작성자: Zero-1016`,
+    `- 사이트: ${SITE_URL}`,
+    `- RSS: ${SITE_URL}/feed.xml`,
+    `- 사이트맵: ${SITE_URL}/sitemap.xml`,
+    `- 언어: 한국어 (ko-KR)`,
+    ``,
+    `## 글 목록`,
+    ``,
+  ];
+
+  for (const p of sorted) {
+    lines.push(`- [${p.title}](${SITE_URL}/posts/${p.slug}): ${p.description}`);
+  }
+
+  return lines.join("\n") + "\n";
 }
 
 function isValidIndexNowKey(key: string): boolean {
@@ -91,12 +117,15 @@ function main() {
 
   const sitemapPath = join(publicDir, "sitemap.xml");
   const robotsPath = join(publicDir, "robots.txt");
+  const llmsPath = join(publicDir, "llms.txt");
 
   writeFileSync(sitemapPath, buildSitemap(posts), "utf-8");
   writeFileSync(robotsPath, buildRobots(), "utf-8");
+  writeFileSync(llmsPath, buildLlmsTxt(posts), "utf-8");
 
   console.log(`✓ sitemap.xml (${posts.length} posts) → ${sitemapPath}`);
   console.log(`✓ robots.txt → ${robotsPath}`);
+  console.log(`✓ llms.txt → ${llmsPath}`);
   console.log(`  site url: ${SITE_URL}`);
 
   const indexNowKey = process.env.INDEXNOW_KEY;

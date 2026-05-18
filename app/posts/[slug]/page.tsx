@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { posts } from "#site/content";
 import { formatCardDate } from "@/lib/utils";
-import { readingTime } from "@/lib/reading-time";
+import { readingTime, readingMinutes } from "@/lib/reading-time";
 import { siteConfig, SITE_URL } from "@/lib/site";
 import { MDXContent } from "@/components/mdx/mdx-content";
 import { SeriesNav } from "@/components/ui/series-nav";
@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const ogUrl = `/og/${post.slug}`;
   const canonical = `/posts/${post.slug}`;
   const publishedTime = new Date(post.date).toISOString();
-  const modifiedTime = publishedTime;
+  const modifiedTime = new Date(post.updated ?? post.date).toISOString();
 
   return {
     title: post.title,
@@ -81,14 +81,17 @@ export default async function PostPage({ params }: Props) {
 
   const postUrl = `${SITE_URL}/posts/${post.slug}`;
   const publishedIso = new Date(post.date).toISOString();
-  const modifiedIso = publishedIso;
+  const modifiedIso = new Date(post.updated ?? post.date).toISOString();
   const ogImageUrl = `${SITE_URL}/og/${post.slug}`;
+  const minutes = readingMinutes(post.charCount);
 
   const blogPostingJsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
+    "@id": `${postUrl}#article`,
     headline: post.title,
     description: post.description,
+    articleBody: post.excerpt,
     image: {
       "@type": "ImageObject",
       url: ogImageUrl,
@@ -97,26 +100,38 @@ export default async function PostPage({ params }: Props) {
     },
     datePublished: publishedIso,
     dateModified: modifiedIso,
+    wordCount: post.charCount,
+    timeRequired: `PT${minutes}M`,
     author: {
       "@type": "Person",
+      "@id": `${SITE_URL}/#person`,
       name: siteConfig.author,
       url: SITE_URL,
+      sameAs: Object.values(siteConfig.social),
     },
     publisher: {
-      "@type": "Organization",
-      name: siteConfig.name,
-      logo: {
-        "@type": "ImageObject",
-        url: `${SITE_URL}/android-chrome-512x512.png`,
-      },
+      "@type": "Person",
+      "@id": `${SITE_URL}/#person`,
+      name: siteConfig.author,
+      url: SITE_URL,
     },
     mainEntityOfPage: {
       "@type": "WebPage",
       "@id": postUrl,
     },
+    isPartOf: {
+      "@type": "Blog",
+      "@id": `${SITE_URL}/#blog`,
+      name: siteConfig.name,
+      url: SITE_URL,
+    },
     keywords: post.tags.join(", "),
     inLanguage: "ko-KR",
     articleSection: post.series ?? post.tags[0] ?? "Tech",
+    speakable: {
+      "@type": "SpeakableSpecification",
+      cssSelector: ["h1", ".prose h2", ".prose h3", ".prose > p:first-of-type"],
+    },
   };
 
   const breadcrumbJsonLd = {
@@ -124,8 +139,17 @@ export default async function PostPage({ params }: Props) {
     "@type": "BreadcrumbList",
     itemListElement: [
       { "@type": "ListItem", position: 1, name: "홈", item: SITE_URL },
-      { "@type": "ListItem", position: 2, name: "글", item: `${SITE_URL}/#posts` },
-      { "@type": "ListItem", position: 3, name: post.title, item: postUrl },
+      ...(post.series
+        ? [
+            {
+              "@type": "ListItem",
+              position: 2,
+              name: post.series,
+              item: `${SITE_URL}/series/${encodeURIComponent(post.series)}`,
+            },
+            { "@type": "ListItem", position: 3, name: post.title, item: postUrl },
+          ]
+        : [{ "@type": "ListItem", position: 2, name: post.title, item: postUrl }]),
     ],
   };
 

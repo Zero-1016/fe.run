@@ -81,16 +81,34 @@ export default function Home() {
     description: p.description,
   }));
 
+  const personId = `${SITE_URL}/#person`;
+  const websiteId = `${SITE_URL}/#website`;
+
+  const personJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "@id": personId,
+    name: siteConfig.author,
+    url: SITE_URL,
+    sameAs: Object.values(siteConfig.social),
+  };
+
   const websiteJsonLd = {
     "@context": "https://schema.org",
     "@type": "WebSite",
+    "@id": websiteId,
     name: siteConfig.name,
     url: SITE_URL,
     description: siteConfig.description,
     inLanguage: "ko-KR",
-    publisher: {
-      "@type": "Person",
-      name: siteConfig.author,
+    publisher: { "@id": personId },
+    potentialAction: {
+      "@type": "SearchAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `${SITE_URL}/?q={search_term_string}`,
+      },
+      "query-input": "required name=search_term_string",
     },
   };
 
@@ -101,6 +119,9 @@ export default function Home() {
     url: SITE_URL,
     description: siteConfig.description,
     inLanguage: "ko-KR",
+    author: { "@id": personId },
+    publisher: { "@id": personId },
+    isPartOf: { "@id": websiteId },
     blogPost: published
       .flatMap((entry) => ("kind" in entry ? entry.items : [entry]))
       .slice(0, 10)
@@ -116,6 +137,10 @@ export default function Home() {
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(personJsonLd) }}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
