@@ -1,10 +1,7 @@
 export const siteConfig = {
   name: "Tech Blog",
   description: "© Copyright All Developers",
-  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://tech-blog-six-phi.vercel.app").replace(
-    /\/$/,
-    ""
-  ),
+  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.frontend.run").replace(/\/$/, ""),
   locale: "ko_KR",
   author: "Zero-1016",
 } as const;
