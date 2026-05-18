@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-05-18 14:16
+
+### SEO 신선도 신호 — `updated` frontmatter 필드 도입 및 스킬 통합
+
+**변경**:
+
+- SHARED.md §FRONTMATTER: "선택 필드" 서브섹션 신설. 옵셔널 `updated:
+<YYYY-MM-DD>` 필드 명세. 본문을 의미 있게 다듬은 날짜를 기록하면 sitemap
+  lastmod / BlogPosting `dateModified` / OG `modifiedTime` 에 자동 반영됨.
+  새 글 작성에는 적지 않음.
+- blog-revise/SKILL.md: 새 섹션 "공통: frontmatter `updated` 자동 갱신" 추가
+  (Phase 4 직전). 패턴 2 Step P2-4, 패턴 3 Step P3-6, 패턴 4 새 Step P4-6 에서
+  이 절차 참조. 패턴 1/5 는 본문 무변경이라 건너뜀.
+- blog-writer/SKILL.md: Step 1 frontmatter 확정에 "적지 않는 필드: `updated`"
+  한 줄 추가. blog-revise 가 자동 관리한다는 점 명시.
+
+**이유**: velite 스키마에 옵셔널 `updated` 필드 추가됨 (lib/site.ts /
+scripts/generate-seo.ts / app/posts/[slug]/page.tsx / types/content.d.ts). 글 수정
+후 신선도 신호를 검색엔진/AI 검색에 보내려면 이 필드를 갱신해야 함. 사용자가 매번
+수동으로 적는 대신 blog-revise 가 자동 처리하도록 표준화.
+
+**수정 유형**: 신규 규칙 추가 (선택 필드 + 자동 갱신 절차)
+
+**영향 범위**:
+
+- velite 스키마: 이미 `updated: s.isodate().optional()` 추가됨 (사전 작업)
+- types/content.d.ts: 이미 `updated?: string` 추가됨 (사전 작업)
+- app/posts/[slug]/page.tsx: 이미 `post.updated ?? post.date` 사용 (사전 작업)
+- scripts/generate-seo.ts: 이미 sitemap lastmod 에 반영 (사전 작업)
+- 기존 글 58편: 영향 없음 (옵셔널 필드)
+- 다른 blog-\* 스킬 (validator, expression-review, coherence-review,
+  draft-review, research, write, banner, topic-suggest): 영향 없음
+- writer-failures.md: 0건 관련 실패
+
+**백업**:
+
+- `.backups/SHARED-20260518-141629.md`
+- `.backups/blog-revise-SKILL-20260518-141629.md`
+- `.backups/blog-writer-SKILL-20260518-141629.md`
+
+**재검증**: 옵셔널 필드 추가라 기존 글 재검증 불필요.
+
+---
+
 ## 2026-05-13 15:32
 
 ### AEO 보강 — §RULE-LEAD-DIRECT 신설, §MDX-FAQ 추가, blog-writer/draft-review 통합

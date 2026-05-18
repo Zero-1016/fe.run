@@ -970,6 +970,16 @@ published: true
 - `title`/`description`에 `**` 금지 (§RULE-BOLD-WHERE)
 - 본문에 frontmatter 구분자(`---`) 중복 금지 (시작/끝 각 1회 = 총 2줄만)
 
+**선택 필드**:
+
+- `updated: <YYYY-MM-DD>` — 본문을 의미 있게 다듬은 날짜
+  - 새 글 작성 시에는 **적지 않음** (`date` 가 publishedTime + modifiedTime 둘 다 커버)
+  - blog-revise 의 패턴 2/3/4 가 본문 변경 시 자동으로 추가/갱신함
+  - 직접 다듬을 때는 본문 수정 후 이 줄을 갱신해야 검색엔진이 신선도를 인식
+    (sitemap lastmod, BlogPosting dateModified, OG modifiedTime 에 반영)
+  - 위치: `date` 라인 바로 다음 권장
+  - ISO date 형식 오류 시 velite 빌드 실패
+
 **시리즈 추가 조건**:
 
 - 모든 편에 `series` + `seriesOrder` 존재
