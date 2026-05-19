@@ -31,8 +31,9 @@ Read로 로드하세요:
 - `§RULE-COLON` (하위 §RULE-COLON-BODY, §RULE-COLON-HEADING)
 - `§RULE-BOLD` (하위 §RULE-BOLD-WHERE, §RULE-BOLD-HOW, §RULE-BOLD-KOREAN)
 - `§RULE-FORBIDDEN-PATTERNS` — 병렬 삼단, 과장 형용사, 메타 문장, 도망치는 마무리,
-  도입부 직접 답 패턴 (§RULE-LEAD-DIRECT)
-- `§RULE-RHYTHM` — 호흡, 자기 목소리
+  도입부 직접 답 패턴 (§RULE-LEAD-DIRECT), 번역투 (§RULE-TRANSLATIONESE),
+  형식명사 남용 (§RULE-FORMAL-NOUN)
+- `§RULE-RHYTHM` — 호흡, 접속사 반복 (§RULE-RHYTHM-CONJUNCTION), 자기 목소리
 - `§RULE-PRESCRIPTION` — 진단-처방 구조면 처방 코드 1개 의무
 - `§RULE-BARE-LIST` — 본문 bare 리스트 금지
 - `§RULE-ENGLISH-QUOTE` — 영어 인용 한글 풀이
@@ -187,6 +188,12 @@ H2 하나씩 순차적으로 채웁니다.
 - `§RULE-RHYTHM-VARIED`: 짧은 문장과 긴 문장 섞기. 같은 종결 어미 3번 이상 반복 금지.
 - `§RULE-PARALLEL-THREE`: 3단 병렬 나열 반복 금지.
 - `§RULE-HYPE`: "완벽한", "강력한" 등 과장 형용사 금지 → 구체적 동작·수치·예시.
+- `§RULE-TRANSLATIONESE`: `~를 통해 → ~로`, `~에 있어서 → ~에서`, 이중 피동
+  (`~되어진다`) 금지.
+- `§RULE-FORMAL-NOUN`: `~것이다`, `~할 필요가 있다`, `~라는 점` 같은 형식명사
+  우회 금지 → 단정형으로.
+- `§RULE-RHYTHM-CONJUNCTION`: 같은 문두 접속사 (`또한`, `따라서`) 가 3단락 이상
+  연속 금지.
 - `§RULE-BARE-LIST`: 본문 bare `- 항목` 금지. 문단으로 풀어쓰거나 컴포넌트로.
 - `§RULE-TERM-INTRODUCTION`: 약어·이벤트 이름·라이프사이클 단계·API 메서드 이름이
   본문에 처음 등장할 때 풀어쓰기·한 줄 정의·인라인 링크 중 하나가 함께 있어야 함.
@@ -462,6 +469,11 @@ Step 4 미니 체크에서 이미 기계적 항목(em-dash, JSX prop `**`, bare 
 - 병렬 삼단 구조가 2번 이상 반복되는지 (§RULE-PARALLEL-THREE)
 - 과장 형용사 ("완벽한", "강력한" 등) 있는지 (§RULE-HYPE)
 - 메타 문장 ("이번 글에서는 ~를 다뤄봅니다" 등) 있는지 (§RULE-META)
+- 번역투 (`~를 통해`, `~에 있어서`, `~에 의해`, 이중 피동) 있는지
+  (§RULE-TRANSLATIONESE)
+- 형식명사 우회 (`~것이다`, `~할 필요가 있다`, `~라는 점`) 있는지
+  (§RULE-FORMAL-NOUN)
+- 같은 문두 접속사가 3단락 이상 연속되는지 (§RULE-RHYTHM-CONJUNCTION)
 
 ### 8-7. 어미 비율 (§BLOG-VOICE)
 

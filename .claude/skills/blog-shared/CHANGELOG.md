@@ -5,6 +5,49 @@
 
 ---
 
+## 2026-05-19 11:30
+
+### SHARED.md — 번역투·형식명사·접속사 반복·정량 지표 4개 섹션 신설
+
+**변경**:
+
+- `§RULE-FORBIDDEN-PATTERNS` 하위에 `§RULE-TRANSLATIONESE` (번역투),
+  `§RULE-FORMAL-NOUN` (형식명사 남용) 신규 추가
+- `§RULE-RHYTHM` 하위에 `§RULE-RHYTHM-CONJUNCTION` (문두 접속사 반복) 신규 추가
+- `§META-EXPRESSION-METRICS` (정량 지표 정의) 신규 추가
+- `blog-expression-review/SKILL.md`: 전제 섹션 + Step 2 검사 항목 (A7, A8, B4
+  추가) + Step 3/4 자동 수정 분류 + dry_run 리포트 형식 + 최종 리포트 정량 지표
+  블록 + 정량 지표 계산 방법 추가
+- `blog-writer/SKILL.md`: 전제 섹션 + Step 4 작성 규칙 + Step 8-6 자가 체크에
+  A7/A8/B4 추가
+
+**이유**: 한글 AI 티 검사 분류 체계 (번역투·형식명사·접속사 반복 등) 를 참고해
+기존 expression-review 가 못 잡던 카테고리를 보강. 정량 지표는 다듬기 전후 회귀
+추적을 위해 도입. 우리 시스템은 어조 정책과 MDX 인식이 강하지만 번역투 카테고리가
+약했음.
+
+**수정 유형**: 새 규칙 섹션 추가 4개 + 2개 SKILL.md 통합 (기존 규칙 변경 없음)
+
+**영향 범위**:
+
+- `blog-expression-review`: 검사 항목 6 → 9개, 정량 지표 자동 출력
+- `blog-writer`: 작성 시 신규 3개 규칙 자가 회피. 자가 체크리스트 강화
+- `blog-revise`: expression-review 호출하므로 자동 반영 (직접 수정 없음)
+- `blog-validator`, `blog-coherence-review`, `blog-draft-review`: 영향 없음
+  (해당 영역 아님)
+- 기존 글 (`content/posts/*.mdx`) — 새 규칙으로 재검증하면 추가 위반 발생 가능
+
+**백업**:
+
+- `.backups/SHARED-20260519-110934.md`
+- `.backups/blog-expression-review-SKILL-20260519-112635.md`
+- `.backups/blog-writer-SKILL-20260519-113021.md`
+
+**재검증**: 기존 글 영향 가능성 있음. Phase 6 에서 영향받는 글 확인 후 재검증
+여부 사용자에게 제안.
+
+---
+
 ## 2026-05-18 14:16
 
 ### SEO 신선도 신호 — `updated` frontmatter 필드 도입 및 스킬 통합
