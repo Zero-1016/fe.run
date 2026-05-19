@@ -2,6 +2,7 @@
 title: "SSR과 RSC, 같은 서버 일 아닌가요"
 description: "둘 다 서버에서 도는 건 맞는데, 만드는 결과물이 다르거든요."
 date: 2026-05-18
+updated: 2026-05-19
 tags: ["React", "Next.js", "RSC", "SSR", "App Router"]
 published: true
 ---
@@ -15,11 +16,11 @@ published: true
 <Callout variant="info">
 "Server Components are a new type of Component that renders ahead of time, before bundling, in an environment separate from your client app or SSR server." - React 공식 문서
 
-Server Component는 빌드 전에, 클라이언트 앱이나 SSR 서버와는 따로 떨어진 환경에서 렌더된다는 거예요.
+Server Component는 브라우저 번들에 들어가기 전 단계에서, 클라이언트 앱이나 SSR 서버와는 분리된 환경에서 렌더된다는 거예요. "before bundling"이 "빌드 타임에만 실행된다"는 뜻이 아니라, 클라이언트 JS 번들에 포함되기 전에 서버 환경에서 실행된다는 의미예요. 요청 시점에 실행되든, 스트리밍 중 실행되든, 캐시 전략에 따라 사전 렌더되든 자리는 같아요.
 
 </Callout>
 
-여기서 눈에 띄는 게 "SSR 서버와는 분리된 환경"이라는 표현이에요. 둘이 서로 대체 관계라면 굳이 "분리된"이라는 말을 쓸 이유가 없거든요. RSC와 SSR은 같은 줄에 서 있는 옵션이 아니라, 다른 층에서 다른 일을 하는 두 단계예요. RSC가 먼저 컴포넌트를 처리하고, 그 결과를 SSR이 HTML로 옷 입히는 식이죠.
+여기서 눈에 띄는 게 "SSR 서버와는 분리된 환경"이라는 표현이에요. 둘이 서로 대체 관계라면 굳이 "분리된"이라는 말을 쓸 이유가 없거든요. RSC와 SSR은 같은 줄에 서 있는 옵션이 아니라, 다른 층에서 다른 일을 하는 두 단계예요. RSC가 먼저 컴포넌트를 처리하고, 그 결과를 SSR이 HTML로 입히는 흐름으로 이해하면 자연스러워요.
 
 이 관계를 제대로 보려면 각각이 무엇을 만들어 내는지부터 봐야 해요.
 
