@@ -1,0 +1,147 @@
+---
+title: "SSR과 RSC, 같은 서버 일 아닌가요"
+description: "둘 다 서버에서 도는 건 맞는데, 만드는 결과물이 다르거든요."
+date: 2026-05-18
+tags: ["React", "Next.js", "RSC", "SSR", "App Router"]
+published: true
+---
+
+처음 [Next.js](https://nextjs.org) App Router로 작업하다가 문서를 읽고 멈칫한 적이 있어요. SSR이 있고, RSC가 있고, 둘이 같이 돌아간다고요. "같은 서버 일 아니야? 그럼 RSC가 SSR 진화판인가?" 싶었거든요. 둘은 진화 관계가 아니에요. **SSR은 HTML을 만들고 RSC는 컴포넌트 트리를 직렬화해요**. [언제 누가 HTML을 그리느냐](/posts/rendering-strategies-map)라는 격자와는 또 다른 층의 이야기거든요.
+
+## 같은 서버에서 돈다는데 왜 따로 부를까
+
+먼저 RSC의 정의를 [React 공식 문서](https://react.dev/reference/rsc/server-components)에서 그대로 짚어볼게요.<Cite id="react-rsc" />
+
+<Callout variant="info">
+"Server Components are a new type of Component that renders ahead of time, before bundling, in an environment separate from your client app or SSR server." - React 공식 문서
+
+Server Component는 빌드 전에, 클라이언트 앱이나 SSR 서버와는 따로 떨어진 환경에서 렌더된다는 거예요.
+
+</Callout>
+
+여기서 눈에 띄는 게 "SSR 서버와는 분리된 환경"이라는 표현이에요. 둘이 서로 대체 관계라면 굳이 "분리된"이라는 말을 쓸 이유가 없거든요. RSC와 SSR은 같은 줄에 서 있는 옵션이 아니라, 다른 층에서 다른 일을 하는 두 단계예요. RSC가 먼저 컴포넌트를 처리하고, 그 결과를 SSR이 HTML로 옷 입히는 식이죠.
+
+이 관계를 제대로 보려면 각각이 무엇을 만들어 내는지부터 봐야 해요.
+
+## SSR이 만드는 건 HTML
+
+SSR은 이름 그대로 서버에서 컴포넌트를 렌더해 HTML 문자열을 만들어요. 브라우저는 받은 HTML을 파싱해서 화면을 즉시 그리고, 그 다음에 자바스크립트가 도착하면 똑같은 트리를 다시 한 번 그려서 이벤트 핸들러를 붙여요. 이걸 hydration이라고 하죠.
+
+문제는 hydration을 위해 컴포넌트 코드를 클라이언트로도 보내야 한다는 점이에요. React 공식 문서가 SSR과 RSC의 차이를 짚을 때 이 부분을 강조하거든요. SSR은 컴포넌트를 서버에서 렌더하지만 컴포넌트 코드는 그대로 클라이언트로 보내고, RSC는 컴포넌트 코드 자체를 브라우저로 보내지 않아요.
+
+그러니까 SSR-only 시절의 흐름은 이래요. 서버에서 컴포넌트를 렌더하고, HTML 한 덩어리를 만들고, HTML과 JS 번들을 같이 내려요. 브라우저는 HTML로 화면을 즉시 그린 다음, JS로 같은 트리를 통째로 다시 그리며 hydrate해요. 결국 HTML 한 장에 트리 전체분의 JS가 따라붙는 거죠.
+
+## RSC가 만드는 건 직렬화된 트리
+
+RSC는 만드는 결과물이 완전히 달라요. HTML이 아니라 컴포넌트 트리를 직렬화한 데이터예요. [Next.js 문서](https://nextjs.org/docs/app/getting-started/server-and-client-components)는 이걸 RSC Payload라고 부르거든요.<Cite id="nextjs-server-client" />
+
+<Callout variant="info">
+"The RSC Payload is a compact binary representation of the rendered React Server Components tree." - Next.js 공식 문서
+
+렌더된 Server Component 트리를 압축한 바이너리 표현이라는 뜻이에요. HTML처럼 사람이 읽는 텍스트가 아니라, React가 클라이언트에서 트리를 복원하는 데 쓰는 데이터 포맷이에요.
+
+</Callout>
+
+대략 이런 모양이에요. 실제 포맷은 더 압축적이지만 의미를 보면 이래요.
+
+```text
+M1:{"id":"./components/Avatar.js","chunks":["client/Avatar.js"]}
+J0:["$","div",null,{
+  "children":[
+    ["$","h1",null,{"children":"Welcome"}],
+    ["$","@1",null,{"name":"Lydia"}]
+  ]
+}]
+```
+
+서버에서 렌더된 부분(`<h1>` 같은)은 결과 노드가 그대로 들어가고, 클라이언트로 위임할 부분(`@1`로 표시된 `Avatar` 컴포넌트)은 자리표시자와 JS 파일 참조로 들어가요. 직렬화 가능한 값만 담을 수 있고, 함수 같은 건 [server reference](https://react.dev/reference/rsc/server-functions)라는 별도 표현으로 들어가요.<Cite id="react-server-functions" />
+
+여기서 또 하나 따라오는 효과가 있어요. Server Component 안에서 `import`한 라이브러리는 RSC Payload를 만들 때 서버에서만 실행되고, 클라이언트 번들에는 아예 들어가지 않아요. 무거운 마크다운 파서나 HTML sanitization 라이브러리가 있어도 사용자 브라우저는 그 코드를 받지 않는 거죠.
+
+## Next.js에서 둘이 만나는 지점
+
+여기까지 보면 한 가지 의문이 남아요. "그럼 RSC가 SSR을 대체하는 거 아닌가? Payload만 보내면 되는 거잖아?" 사실 Next.js는 둘을 같이 써요. RSC가 만든 출력을 SSR이 HTML로 한 번 더 감싸는 구조거든요.
+
+첫 로드 흐름을 그려보면 이래요.
+
+<AnimatedStep
+  steps={[
+    {
+      title: "Server Component 렌더",
+      content: "서버에서 RSC가 컴포넌트 트리를 렌더해 RSC Payload를 만들어요. Client Component는 placeholder 자리로 남겨두고요."
+    },
+    {
+      title: "RSC Payload로 HTML prerender",
+      content: "그 Payload를 입력으로 SSR이 정적 HTML을 prerender해요. 사용자가 JS 없이도 첫 화면을 볼 수 있도록요."
+    },
+    {
+      title: "같은 응답 스트림에 함께 보내기",
+      content: "HTML과 RSC Payload가 한 응답 스트림에 실려 함께 도착해요. 클라이언트는 HTML로 화면을 즉시 그리고, Payload로 트리를 재구성한 다음, Client Component 자리만 JS로 hydrate해요."
+    }
+  ]}
+/>
+
+핵심은 두 번째 단계예요. SSR이 "RSC Payload를 받아서 HTML로 prerender하는 단계"로 자리가 잡혀 있어요. RSC가 SSR을 밀어낸 게 아니라, SSR 앞에 한 단계가 더 생긴 거죠.<Cite id="nextjs-streaming" />
+
+후속 네비게이션에서는 그림이 또 달라져요. 사용자가 다음 페이지로 이동할 때 Next.js는 HTML을 다시 받지 않아요. RSC Payload만 받아서 클라이언트가 트리 일부를 부분 업데이트하거든요. HTML은 "처음 한 번"의 작업이고, 그 이후엔 Payload가 페이지 전환을 책임지는 거예요.<Cite id="nextjs-caching" />
+
+이 구조에서 [`use client` 한 줄이 어떤 경계를 긋는지](/posts/use-client-boundary-and-overuse)가 본격적으로 중요해져요. `use client`로 표시된 모듈은 RSC Payload 안의 placeholder로 들어가고, 그 placeholder에 대응하는 JS만 클라이언트로 가는 거니까요.<Cite id="react-use-client" />
+
+## hydration의 의미가 바뀌는 지점
+
+SSR-only 시절의 hydration은 단순했어요. 서버에서 그린 HTML과 같은 트리를 클라이언트에서도 다시 그리고, 거기에 이벤트 핸들러를 붙이는 작업이었거든요. 트리 전체가 hydration 대상이었던 거예요.
+
+RSC와 SSR을 같이 쓰면 이 의미가 달라져요. Server Component는 결과가 정적인 데이터라서 hydrate할 게 없어요. 이벤트 핸들러도 없고, 상태도 없거든요. <strong>hydrate되는 건 Client Component placeholder뿐</strong>이에요. 트리의 대부분이 hydration에서 빠지는 셈이죠.
+
+번들 사이즈에 이게 그대로 영향을 줘요. Server Component가 import한 모든 코드, 서버 전용 라이브러리든 DB 쿼리 함수든, 클라이언트 번들에서 통째로 빠져요. 비대화형 영역이 많은 페이지일수록 클라이언트로 가는 JS가 가벼워져요. 진짜로 인터랙티브한 부분에만 코드를 보내는 모델로 옮겨가는 거예요.
+
+[Suspense 경계를 어디 그어야 스트리밍이 잘 끊기는지](/posts/suspense-boundary-where)는 이 모델 위에서 한 단계 더 들어가는 이야기예요. RSC Payload와 HTML이 같이 스트리밍될 때, 어느 지점에서 청크를 끊어 보낼지가 또 다른 설계 문제거든요.
+
+## 같은 서버, 다른 일
+
+처음 질문으로 돌아가 볼게요. SSR과 RSC가 둘 다 서버에서 도는 건 맞아요. 근데 서로 다른 일을 해요. SSR은 HTML을 만들고, RSC는 컴포넌트 트리를 직렬화해요. 결과물의 형태가 다르고, 클라이언트에서 그 결과물을 다루는 방식도 달라요.
+
+Next.js App Router에서는 RSC가 먼저 컴포넌트를 처리해 Payload를 만들고, SSR이 그 Payload를 HTML로 한 번 더 감싸 첫 응답을 만들어요. 후속 네비게이션에서는 RSC Payload만 다녀요. 둘은 대체 관계가 아니라 층위가 다른 도구예요.
+
+답이 모이는 자리는 결국 한 줄이에요. RSC가 SSR을 밀어낸 게 아니라, SSR 앞에 한 단계가 생긴 거예요. 그 한 단계 덕분에 클라이언트로 가는 JS가 줄어들고, hydration이 부분만 일어나고, 페이지 전환에서 HTML이 빠질 수 있게 됐어요.
+
+<References
+  items={[
+    {
+      id: "react-rsc",
+      title: "React 공식 - Server Components",
+      href: "https://react.dev/reference/rsc/server-components",
+      description: "RSC가 SSR 서버와 분리된 환경에서 렌더된다는 정의와 번들 효과"
+    },
+    {
+      id: "react-use-client",
+      title: "React 공식 - use client",
+      href: "https://react.dev/reference/rsc/use-client",
+      description: "Server와 Client 모듈 그래프 사이의 경계 선언 규칙"
+    },
+    {
+      id: "react-server-functions",
+      title: "React 공식 - Server Functions",
+      href: "https://react.dev/reference/rsc/server-functions",
+      description: "Server Function이 참조로 직렬화되는 방식"
+    },
+    {
+      id: "nextjs-server-client",
+      title: "Next.js 공식 - Server and Client Components",
+      href: "https://nextjs.org/docs/app/getting-started/server-and-client-components",
+      description: "RSC Payload 정의, 서버 측 흐름, 첫 로드 3단계"
+    },
+    {
+      id: "nextjs-caching",
+      title: "Next.js 공식 - Caching",
+      href: "https://nextjs.org/docs/app/getting-started/caching",
+      description: "초기 로드 HTML과 클라이언트 네비게이션용 RSC Payload 두 산출물"
+    },
+    {
+      id: "nextjs-streaming",
+      title: "Next.js 공식 - Streaming",
+      href: "https://nextjs.org/docs/app/guides/streaming",
+      description: "HTML 스트림과 RSC Payload가 같은 응답 스트림에 실리는 방식"
+    }
+  ]}
+/>
