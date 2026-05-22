@@ -1,0 +1,155 @@
+---
+title: "코딩 격언은 왜 다 약어로 남았을까"
+description: "같은 코드를 두고 DRY 라는 사람, AHA 라는 사람이 갈려요. 사실 둘은 한 가족이에요."
+date: 2026-05-21
+tags: ["코드 품질", "리팩터링", "DRY", "SOLID", "코딩 원칙"]
+published: true
+---
+
+"이 코드는 DRY 가 깨졌네", "여기는 차라리 AHA 야". 같은 코드를 두고 누군가는 줄이라 하고 누군가는 두라고 해요. 약어가 너무 많다 보니 어떤 게 무슨 뜻인지부터 헷갈리죠. 사실 이 약어들은 따로 떨어진 격언이 아니라 네 가족으로 묶이고, 한 가족 안에서 서로를 보완하면서 자라왔어요.
+
+## 단순함 가족, KISS 와 YAGNI
+
+이 가족은 결이 닮아 보여요. 단순하게 만들고 적게 만든다는 점에서요. 그런데 두 격언이 누르는 자리는 좀 달라요.
+
+KISS 는 "Keep It Simple, Stupid" 의 머리글자예요. 1960년 록히드의 항공기 설계 책임자 켈리 존슨이 만들었고요.<Cite id="wikipedia-kiss" /> 원래 의도는 평범한 정비공이 야전에서 단순한 공구만으로 비행기를 고칠 수 있어야 한다는 거였어요. 소프트웨어가 차용한 거고요. 그래서 KISS 는 "설계의 단순함" 자리를 누르는 격언이에요.
+
+YAGNI 는 "You Aren't Gonna Need It". 1990년대 익스트림 프로그래밍 (XP) 현장에서 켄트 벡과 쳇 헨드릭슨이 주고받던 말에서 나왔어요. "지금 필요해 보이지 않는 기능을 미래에 필요할 거라고 미리 만들지 마라" 는 거죠.
+
+마틴 파울러가 짚는 결정적인 통찰이 있어요.
+
+<Callout variant="info">
+"Yagni requires (and enables) malleable code." - Martin Fowler
+
+YAGNI 는 깨끗한 코드를 전제로 해요. 리팩터링이 쉬운 상태가 아니면 "지금은 안 만든다" 는 결정도 못 해요. 나중에 바꿀 자신이 있어야 미루는 게 가능하거든요.
+
+</Callout>
+
+KISS 가 "지금 만드는 것을 단순하게" 라면, YAGNI 는 "지금은 안 만들기" 예요.<Cite id="fowler-yagni" /> 닮았지만 누르는 자리가 달라요.
+
+## 중복과 추상 가족, DRY 부터 AHA 까지
+
+약어 카운트가 가장 많은 가족이에요. DRY 하나를 두고 사람들이 너무 많이 싸워서, 그 반작용으로 약어가 계속 생겼거든요.
+
+DRY 는 *The Pragmatic Programmer* (1999) 의 Tip #15 예요. 앤디 헌트와 데이브 토마스가 정리했고요. 원문은 이래요.
+
+<Callout variant="info">
+"Every piece of knowledge must have a single, unambiguous, authoritative representation within a system." - Hunt & Thomas
+
+시스템 안에서 하나의 지식은 한 곳에만 있어야 한다는 뜻이에요. 흔히 "코드 중복 금지" 로만 알려져 있는데, 원문은 '지식' 을 말해요. 같은 사실을 두 곳에 적어두면, 한쪽만 고치고 나머지를 까먹는 게 진짜 문제거든요.
+
+</Callout>
+
+여기까지가 정설이에요.<Cite id="pragprog-tips" /> 문제는 사람들이 DRY 를 너무 일찍 적용하기 시작했다는 거예요. 두 함수가 비슷하게 생겼다는 이유로 묶어버리면, 시간이 지나면서 그 함수가 점점 갈라져요. if 가 늘어나고 옵션 객체가 부풀어요. 결국 둘 다 망가지죠.
+
+산디 메츠가 2014년 RailsConf 강연에서 던진 한 문장이 이 흐름을 정리해줘요.<Cite id="sandi-metz-wrong-abstraction" />
+
+<Callout variant="warning">
+"Duplication is far cheaper than the wrong abstraction." - Sandi Metz
+
+잘못된 추상화는 중복보다 훨씬 비싸요. 그래서 차라리 인라인으로 풀어서 중복으로 되돌리고, 진짜 패턴이 보일 때 다시 추상화하는 게 낫다는 거죠.
+
+</Callout>
+
+이 정신에 약어를 붙인 게 AHA 예요. "Avoid Hasty Abstractions". 사실 세 사람의 합작이에요. 사상은 산디 메츠 (2014년 RailsConf 강연), 약어 명명은 셰어 스칼릿, 글로 정립한 건 켄트 C. 도즈예요 (2020년 블로그).<Cite id="kentcdodds-aha" />
+
+더 보수적인 친구로는 Rule of Three 가 있어요. 마틴 파울러의 *Refactoring* 책이 돈 로버츠의 격언으로 소개했죠. "세 번째로 같은 패턴이 보이면 그때 리팩터링하라". 첫 번째는 그냥, 두 번째는 참고, 세 번째에야 추상화.
+
+WET 도 짚어둘게요. "Write Everything Twice", "We Enjoy Typing". DRY 의 농담 대척점이에요. 진지한 격언은 아니지만 "두 번 쓰기 전엔 추상화하지 마라" 의 의미로 인용되기도 해요.
+
+응집도 관점에서 같은 이야기를 [화면을 닮은 모양으로 코드 두기](/posts/screen-code-one-to-one-mapping) 글에서 다룬 적이 있어요. 추상화가 너무 일러서 화면 한 점을 짚는데 코드 네 층을 내려가야 하는 상황이요.
+
+## 코드 위생 가족, Broken Window 와 Boy Scout Rule
+
+이 가족은 같은 정신에서 자라난 짝이에요. *The Pragmatic Programmer* 와 그 후계인 *Clean Code* 에서 자주 같이 인용돼요.
+
+Broken Window (깨진 창문) 는 Tip #5 예요. "나쁜 설계, 잘못된 결정, 더러운 코드를 발견하면 즉시 고치라" 는 거죠. 메타포 자체는 1982년 사회학에서 빌려왔어요. 제임스 윌슨과 조지 켈링이 "깨진 창문 하나가 더 큰 무질서를 부른다" 는 범죄학 이론을 냈고, 헌트와 토마스가 그걸 코드에 차용했어요.
+
+핵심은 코드의 깨진 창문 하나가 다음 작업자의 기준을 낮춘다는 거예요. "어차피 이미 더러우니까" 라는 마음이 들면 작은 깨짐들이 누적돼요.
+
+Boy Scout Rule 은 그 반대 방향이에요. 로버트 C. 마틴이 *Clean Code* (2008) 에서 강조한 격언이고요. 보이스카우트의 "왔을 때보다 깨끗하게 두고 떠나라" 를 코드에 가져왔어요. 작업한 코드를 발견했을 때보다 조금이라도 깨끗하게 두라는 거죠.
+
+둘은 같은 가족이에요. Broken Window 가 "나빠지지 않게" 라면, Boy Scout 은 "한 칸씩 좋아지게". 큰 리팩터링이 아니라 작은 행위의 누적 효과를 봐요.
+
+## 설계 원칙 묶음, SOLID 와 친구들
+
+가장 무거운 가족이에요. SOLID 만 다뤄도 책 한 권이 나오니까요. 여기선 머리글자 풀이와 흥미로운 명명 배경만 짚을게요.
+
+SOLID 는 다섯 원칙의 머리글자예요.<Cite id="uncle-bob-solid" />
+
+<Callout variant="info">
+• S, Single Responsibility (단일 책임)<br/>
+• O, Open-Closed (개방-폐쇄)<br/>
+• L, Liskov Substitution (리스코프 치환)<br/>
+• I, Interface Segregation (인터페이스 분리)<br/>
+• D, Dependency Inversion (의존성 역전)
+</Callout>
+
+흥미로운 사실 하나. 원칙들 자체는 로버트 C. 마틴이 2000년 *Design Principles and Design Patterns* 논문에서 정리했지만, "SOLID" 라는 약어로 묶은 건 마이클 페더스예요 (2004년경).<Cite id="wikipedia-solid" /> 다섯 원칙이 마침 "SOLID" 로 떨어지는 게 페더스 눈에 보였던 거죠. 원칙 만든 사람과 약어 명명자가 다른 흔치 않은 사례예요.
+
+SLAP 는 "Single Level of Abstraction Principle". 한 함수 안에서 코드는 모두 같은 추상 수준이어야 한다는 거예요. 고수준 호출과 저수준 비트 연산을 같은 함수에 섞지 마라. 이 약어를 명명한 건 닐 포드 (*The Productive Programmer*, 2008) 인데, 인터넷에서는 자주 마틴이 명명한 걸로 잘못 알려져 있어요. 사상 자체는 마틴의 *Clean Code* 함수 챕터에서 형식화됐지만, 약어는 포드가 먼저예요.
+
+POLA 는 "Principle of Least Astonishment". 사용자가 가장 덜 놀라는 방향으로 동작해야 한다는 거예요. API 이름, CLI 옵션, UI 동작에 두루 적용돼요. 흥미로운 건 이 격언의 나이예요. 1967년 PL/I Bulletin 에 처음 등장했어요.<Cite id="wikipedia-pola" /> DRY (1999) 나 SOLID (2000) 보다 30년 넘게 오래된 약어예요.
+
+## 약어들이 공유하는 것
+
+이렇게 묶고 보면 약어들이 결국 한 곳을 가리켜요. 변경의 비용을 작게 유지하기.
+
+단순함 가족은 "안 만들기" 로 비용을 줄이고, 중복-추상 가족은 "잘 만들거나 차라리 두기" 로 줄여요. 위생 가족은 누적 부채로 비용이 늘어나지 않게 막고, 설계 원칙 가족은 변경 가능한 구조와 예측 가능한 동작을 약속하죠. 결국 같은 질문의 다른 답이에요. 코드를 어떻게 다뤄야 다음 변경이 비싸지지 않을까.
+
+약어를 외운다고 코드가 좋아지지는 않아요. 저도 처음엔 DRY, SOLID 같은 머리글자만 외웠다가, 같은 글자를 두고 사람들이 정반대 주장을 하는 걸 보고 멈칫했거든요. 한 가족 안의 격언들을 함께 봐야 판단이 단단해져요. DRY 옆에 AHA 가 있고, KISS 옆에 YAGNI 가 있는 식으로요.
+
+추상화를 두고 "읽기 쉽다" 와 "어렵다" 가 갈리는 이유는 [선언적인 코드라는 말이 어렵게 느껴질 때](/posts/declarative-readable-code) 글에서 다뤘어요. 약어들도 마찬가지예요. 한 격언 안에 갇히면 정반대 결론도 나와요. 가족을 알면 그 안에서 균형을 잡을 수 있고요.
+
+<References
+  items={[
+    {
+      id: "pragprog-tips",
+      title: "The Pragmatic Programmer - Tips",
+      href: "https://pragprog.com/tips/",
+      description: "DRY (Tip #15) 와 Broken Window (Tip #5) 의 원문 인용",
+    },
+    {
+      id: "fowler-yagni",
+      title: "Martin Fowler - Yagni",
+      href: "https://martinfowler.com/bliki/Yagni.html",
+      description: "YAGNI 가 깨끗한 코드를 전제로 한다는 통찰",
+    },
+    {
+      id: "sandi-metz-wrong-abstraction",
+      title: "Sandi Metz - The Wrong Abstraction",
+      href: "https://sandimetz.com/blog/2016/1/20/the-wrong-abstraction",
+      description: "잘못된 추상화가 중복보다 비싸다는 핵심 명제",
+    },
+    {
+      id: "kentcdodds-aha",
+      title: "Kent C. Dodds - AHA Programming",
+      href: "https://kentcdodds.com/blog/aha-programming",
+      description: "AHA 약어의 명명자와 정립 과정",
+    },
+    {
+      id: "uncle-bob-solid",
+      title: "Robert C. Martin - Solid Relevance",
+      href: "https://blog.cleancoder.com/uncle-bob/2020/10/18/Solid-Relevance.html",
+      description: "SOLID 다섯 원칙과 약어 명명 배경",
+    },
+    {
+      id: "wikipedia-kiss",
+      title: "Wikipedia - KISS principle",
+      href: "https://en.wikipedia.org/wiki/KISS_principle",
+      description: "켈리 존슨과 록히드 항공기 설계 기원",
+    },
+    {
+      id: "wikipedia-pola",
+      title: "Wikipedia - Principle of least astonishment",
+      href: "https://en.wikipedia.org/wiki/Principle_of_least_astonishment",
+      description: "1967년 PL/I Bulletin 의 첫 언급과 형식화",
+    },
+    {
+      id: "wikipedia-solid",
+      title: "Wikipedia - SOLID",
+      href: "https://en.wikipedia.org/wiki/SOLID",
+      description: "Michael Feathers 의 약어 명명 시기 교차 확인",
+    },
+  ]}
+/>
