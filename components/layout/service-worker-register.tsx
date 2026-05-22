@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 
 const OFFLINE_TOAST_SHOWN_SESSION_KEY = "offline-toast-shown";
@@ -26,7 +26,10 @@ function collectNextStaticCssUrls(): string[] {
 }
 
 export function ServiceWorkerRegister() {
+  const hasShownToastRef = useRef(false);
+
   useEffect(() => {
+    if (process.env.NODE_ENV !== "production") return;
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")
@@ -65,13 +68,20 @@ export function ServiceWorkerRegister() {
   useEffect(() => {
     const showOfflineToastOnce = () => {
       if (navigator.onLine) return;
+      if (hasShownToastRef.current) return;
+
       try {
-        if (window.sessionStorage.getItem(OFFLINE_TOAST_SHOWN_SESSION_KEY) === "1") return;
+        if (window.sessionStorage.getItem(OFFLINE_TOAST_SHOWN_SESSION_KEY) === "1") {
+          hasShownToastRef.current = true;
+          return;
+        }
         window.sessionStorage.setItem(OFFLINE_TOAST_SHOWN_SESSION_KEY, "1");
       } catch {
-        // ignore
+        // sessionStorage 불가 시 ref 만으로 게이팅
       }
-      toast("인터넷 없이 읽는 중이에요 ✈️", {
+
+      hasShownToastRef.current = true;
+      toast("✈️ 인터넷 없이 읽는 중이에요", {
         id: OFFLINE_TOAST_ID,
         duration: OFFLINE_TOAST_DURATION_MS,
       });
