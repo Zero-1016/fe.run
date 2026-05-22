@@ -3,6 +3,8 @@
 import dynamic from "next/dynamic";
 import { useSyncExternalStore } from "react";
 
+import { useIsOnline } from "@/lib/use-is-online";
+
 /** 마운트 전·후 동일한 첫 프레임(스켈레톤)으로 hydration 맞춘 뒤, 오프라인이면 코드만 표시 */
 function useMountedOnline(): { mounted: boolean; online: boolean } {
   const mounted = useSyncExternalStore(
@@ -10,18 +12,7 @@ function useMountedOnline(): { mounted: boolean; online: boolean } {
     () => true,
     () => false
   );
-  const online = useSyncExternalStore(
-    (callback) => {
-      window.addEventListener("online", callback);
-      window.addEventListener("offline", callback);
-      return () => {
-        window.removeEventListener("online", callback);
-        window.removeEventListener("offline", callback);
-      };
-    },
-    () => navigator.onLine,
-    () => true
-  );
+  const online = useIsOnline();
   return { mounted, online };
 }
 
