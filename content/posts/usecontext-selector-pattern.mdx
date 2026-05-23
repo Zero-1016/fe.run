@@ -2,6 +2,7 @@
 title: "useContext가 모두를 깨우는 이유"
 description: "useContext는 부분 구독을 모르거든요. 그래서 selector가 따로 필요해요."
 date: 2026-05-23
+updated: 2026-05-23
 tags: ["React", "Context", "성능", "상태관리"]
 published: true
 ---
@@ -156,12 +157,70 @@ function useFormSelector(selector) {
 
 `getSnapshot` 의 반환값이 `Object.is` 로 다를 때만 React 가 리렌더해요. selector 가 부분 구독이 되는 원리가 여기서 드러나요. Zustand 도 내부에서 같은 훅을 써요. 다만 직접 쓰려면 `getSnapshot` 이 객체를 새로 만들지 않게 메모이즈 하는 일까지 직접 해야 해서, 실전에서는 라이브러리에 맡기는 쪽이 편해요. 이 훅 자체의 함정과 동작은 [Zustand 밑에 깔린 훅의 정체](/posts/react-use-sync-external-store)에서 자세히 다뤘어요.
 
-## 다시 폼으로 돌아와서
+## Sidebar 와 Preview, 실제로는 이렇게
 
-처음의 Sidebar / Preview 문제로 돌아가 볼게요. react-hook-form 은 같은 selector 패턴을 form 라이브러리 안에 내장해뒀어요. `useWatch` 가 그 자리예요.
+도입에서 시작한 시나리오로 돌아가서 같은 화면을 두 갈래로 만들어볼게요. selector 도구 없이 `useContext` 만 쓰는 길과, react-hook-form 의 `useWatch` 로 selector 를 쓰는 길이에요. 같은 결과를 다른 모양으로 보여줄 뿐, 메시지는 하나예요. 필요한 컴포넌트만 깨우는 거.
+
+### Context 를 쪼개서 여러 Provider 로
+
+부분 구독은 selector 만의 답이 아니에요. Context 를 도메인별로 쪼개두면 `useContext` 만으로도 부분 구독 효과가 나요. Preview 가 `TitleCtx` 만 보면 `ColorCtx` 가 바뀌어도 가만히 있거든요.
 
 ```tsx
-import { useWatch } from "react-hook-form";
+const TitleCtx = createContext("");
+const ColorCtx = createContext("#000");
+const SetTitleCtx = createContext<(v: string) => void>(() => {});
+const SetColorCtx = createContext<(v: string) => void>(() => {});
+
+function FormProviders({ children }) {
+  const [title, setTitle] = useState("");
+  const [color, setColor] = useState("#000");
+  return (
+    <TitleCtx.Provider value={title}>
+      <ColorCtx.Provider value={color}>
+        <SetTitleCtx.Provider value={setTitle}>
+          <SetColorCtx.Provider value={setColor}>{children}</SetColorCtx.Provider>
+        </SetTitleCtx.Provider>
+      </ColorCtx.Provider>
+    </TitleCtx.Provider>
+  );
+}
+
+function Preview() {
+  const title = useContext(TitleCtx); // color 가 바뀌어도 가만
+  return <Card title={title} />;
+}
+```
+
+장점은 의존성이 코드에 그대로 드러난다는 거예요. Preview 가 어떤 값을 보는지 import 줄과 useContext 호출만 봐도 알 수 있어요. 단점은 필드가 늘면 Provider 가 그만큼 늘고 중첩이 깊어진다는 거고요. 폼이 5~10 필드만 넘어가도 답답해져요.
+
+### 한 Context 에 selector 를 얹기
+
+같은 화면을 useWatch 로 풀면 Provider 는 하나로 충분해요.
+
+```tsx
+import { FormProvider, useForm, useFormContext, useWatch } from "react-hook-form";
+
+function App() {
+  const form = useForm({ defaultValues: { title: "", color: "#000" } });
+  return (
+    <FormProvider {...form}>
+      <Layout>
+        <Sidebar />
+        <Preview />
+      </Layout>
+    </FormProvider>
+  );
+}
+
+function Sidebar() {
+  const { register } = useFormContext();
+  return (
+    <>
+      <input {...register("title")} />
+      <input type="color" {...register("color")} />
+    </>
+  );
+}
 
 function Preview() {
   const title = useWatch({ name: "title" });
@@ -169,9 +228,15 @@ function Preview() {
 }
 ```
 
-`useFormContext().watch()` 가 form 의 root 컴포넌트를 리렌더 시키는 데 반해, `useWatch` 는 호출한 컴포넌트만 리렌더해요. Preview 는 title 만 보고, Sidebar 의 다른 input 이 아무리 바뀌어도 가만히 있어요. selector 패턴이 도메인 라이브러리 안에 흡수되어 있는 셈이에요.
+Provider 한 줄로 폼 상태가 깊은 자손까지 흘러가요. Preview 는 `useWatch({ name: "title" })` 로 title 필드만 구독해서, color 가 바뀌면 Sidebar 의 color input 만 다시 그려지고 Preview 는 가만히 있어요. `useFormContext().watch()` 와 다르게 호출한 컴포넌트 레벨로 리렌더가 격리돼요. selector 패턴이 도메인 라이브러리 안에 흡수된 모양이에요.
 
-옵션을 짧게 정리할게요. Context 형태를 유지해야 하면 use-context-selector, 새 store 가 필요하면 Zustand, 작은 단위 합성이 우선이면 Jotai, 외부 시스템과 직접 동기화하면 useSyncExternalStore 직접 구현이에요. 폼처럼 도메인 라이브러리가 있다면 그쪽 selector 훅 (`useWatch`) 을 먼저 보세요. [Zustand 와 Jotai 가 어디서 갈리는지](/posts/zustand-jotai-top-down-bottom-up)는 따로 한 글로 풀었어요.
+react-hook-form 외 다른 selector 도구도 모양만 살짝 다를 뿐 같은 자리에 들어가요. use-context-selector 면 `useContextSelector(FormCtx, v => v.title)`, Zustand 면 `useFormStore(s => s.title)` 이에요. store 의 위치 (Context 안 vs 트리 밖) 와 setter 호출 방식만 차이가 있고, 부분 구독이라는 핵심은 같아요.
+
+## 어느 길을 고를까
+
+폼 필드가 적고 도메인이 깔끔하게 갈리면 길 1 (Context 쪼개기) 이 가장 가벼워요. 필드가 늘거나 동적이거나, 이미 react-hook-form 같은 도메인 라이브러리를 쓰고 있다면 길 2 (selector) 가 자연스럽고요.
+
+selector 도구 자체의 선택을 짧게요. Context 형태를 유지해야 하면 use-context-selector, 새 store 가 필요하면 Zustand, 작은 단위 합성이 우선이면 Jotai, 외부 시스템과 직접 동기화하면 useSyncExternalStore 직접 구현이에요. [Zustand 와 Jotai 가 어디서 갈리는지](/posts/zustand-jotai-top-down-bottom-up)는 따로 한 글로 풀었어요.
 
 React 공식 문서가 Context 챕터 시작에서 던지는 말로 닫을게요.<Cite id="react-passing-data" /> "props 가 몇 단계 깊게 전달된다고 해서 그 정보를 context 에 넣어야 한다는 뜻은 아니에요." Context 를 너무 쉽게 꺼내지 말고, 정말 깊은 트리에 값을 흘려보내야 할 때만 꺼내요. 그리고 그 자리에 도착했다면, `useContext` 한 줄로 끝내지 말고 selector 한 줄을 더 떠올리세요.
 
