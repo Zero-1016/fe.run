@@ -323,6 +323,18 @@ body {
     transform: scale(1.2);
   }
 }
+/* CodePlayground (Sandpack) — 데모는 라이트 팔레트로 작성돼 프리뷰는 밝게 둔다.
+   다크 페이지에서 흰 면이 "비어 보이지" 않도록, 어두운 틀 위에 둥근 밝은
+   카드로 인셋해 의도된 결과 패널처럼 보이게 한다. */
+.dark .sp-preview-container {
+  background-color: #09090b;
+  padding: 12px;
+}
+.dark .sp-preview-iframe {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
 .recommend-bubble__pulse {
   animation: recommend-bubble-pulse 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
