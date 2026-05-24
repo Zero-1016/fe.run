@@ -1,0 +1,521 @@
+---
+title: "currentTarget은 왜 자꾸 바뀔까"
+description: "버블링과 캡처링을 알면 target과 currentTarget이 왜 다른지 풀려요."
+date: 2026-05-24
+tags: ["JavaScript", "DOM", "이벤트", "이벤트 위임"]
+banner: "javascript"
+published: true
+---
+
+버튼 안에 아이콘 하나 넣었을 뿐인데, 클릭 핸들러에서 `e.target`을 찍어보면 버튼이 아니라 아이콘이 나와요. 뭔가 잘못 짠 건가 싶지만 사실 정상이에요. `target`은 실제로 클릭된 요소고, `currentTarget`은 핸들러가 붙어 있는 요소거든요. 이 둘이 갈라지는 건 이벤트가 DOM 트리를 위아래로 타고 흐르기 때문이에요.
+
+## 클릭 한 번에 핸들러가 여러 번 불려요
+
+내부 요소를 한 번 클릭하면, 브라우저는 그 클릭을 가장 안쪽 요소에만 전달하지 않아요. 이벤트는 세 단계를 거칩니다. 먼저 최상위에서 클릭된 요소까지 타고 내려가는 캡처링(capturing) 단계, 클릭된 요소 자신에 도달하는 타깃(target) 단계, 그리고 다시 부모를 거슬러 올라가는 버블링(bubbling) 단계예요. 그래서 부모와 자식에 둘 다 클릭 핸들러가 걸려 있으면, 자식을 한 번 눌러도 양쪽이 다 불려요.
+
+기본적으로 우리가 `addEventListener`로 등록하는 핸들러는 버블링 단계에서 발동해요. 그래서 자식을 클릭하면 자식 핸들러가 먼저, 그다음 부모 핸들러가 실행되죠. 아래에서 가장 안쪽 박스를 클릭해보세요. 발동 순서가 로그에 찍힙니다.
+
+<CodePlayground
+  code={`import { useState, useRef, useEffect } from "react";
+
+  function PropagationDemo() {
+    const [log, setLog] = useState([]);
+    const [useCapture, setUseCapture] = useState(false);
+    const outer = useRef(null);
+    const middle = useRef(null);
+    const inner = useRef(null);
+
+    useEffect(() => {
+      const boxes = [
+        { el: outer.current, name: "outer" },
+        { el: middle.current, name: "middle" },
+        { el: inner.current, name: "inner" },
+      ];
+      const handlers = boxes.map(({ el, name }) => {
+        const fn = (e) => {
+          const phase =
+            e.eventPhase === 1
+              ? "capture"
+              : e.eventPhase === 2
+                ? "target"
+                : "bubble";
+          setLog((prev) => [...prev, name + " (" + phase + ")"]);
+        };
+        el.addEventListener("click", fn, { capture: useCapture });
+        return { el, fn };
+      });
+      return () =>
+        handlers.forEach(({ el, fn }) =>
+          el.removeEventListener("click", fn, { capture: useCapture })
+        );
+    }, [useCapture]);
+
+    return (
+      <div className="demo">
+        <button
+          className="toggle"
+          onClick={() => {
+            setUseCapture((c) => !c);
+            setLog([]);
+          }}
+        >
+          {useCapture ? "capture: true (캡처링)" : "capture: false (버블링)"}
+        </button>
+        <div ref={outer} className="box box--outer">
+          outer
+          <div ref={middle} className="box box--middle">
+            middle
+            <div ref={inner} className="box box--inner">
+              inner
+            </div>
+          </div>
+        </div>
+        <div className="log">
+          {log.length === 0 ? (
+            <span className="hint">inner를 클릭해보세요</span>
+          ) : (
+            log.map((line, i) => <div key={i}>{line}</div>)
+          )}
+        </div>
+      </div>
+    );
+  }`}
+  css={`.demo {
+    font-family: sans-serif;
+  }
+
+  .toggle {
+    margin-bottom: 12px;
+    padding: 6px 12px;
+    border: 1px solid #6366f1;
+    background: #6366f1;
+    color: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .box {
+    padding: 16px;
+    border: 2px solid #c7d2fe;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #4338ca;
+    font-size: 14px;
+  }
+
+  .box--middle {
+    margin-top: 10px;
+    background: #eef2ff;
+  }
+
+  .box--inner {
+    margin-top: 10px;
+    background: #e0e7ff;
+  }
+
+  .log {
+    margin-top: 14px;
+    padding: 10px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 13px;
+    min-height: 60px;
+    white-space: pre;
+  }
+
+  .hint {
+    color: #94a3b8;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+토글을 눌러 capture를 켜면 순서가 거꾸로 뒤집혀요. `addEventListener`의 세 번째 인자에 `{ capture: true }`를 주면 그 핸들러는 버블링이 아니라 캡처링 단계에서 발동하거든요.<Cite id="mdn-add-event-listener" /> 그래서 outer가 가장 먼저, inner가 가장 나중에 불립니다. 오래된 코드에서 보이는 `addEventListener("click", fn, true)`의 세 번째 boolean 인자도 `{ capture: true }`와 같은 뜻이에요.
+
+## target은 안 변하고 currentTarget만 바뀌어요
+
+위 데모에서 inner를 클릭하면 outer, middle, inner 핸들러가 차례로 불렸죠. 이때 세 핸들러 모두 `e.target`은 똑같이 inner예요. 클릭이 실제로 일어난 요소니까요. 반면 `e.currentTarget`은 핸들러마다 달라요. outer 핸들러 안에서는 outer, middle 핸들러 안에서는 middle을 가리키죠.
+
+<Callout variant="info">
+"The currentTarget read-only property of the Event interface identifies the element to which the event handler has been attached." - MDN
+
+`currentTarget`은 지금 이 핸들러가 붙어 있는 요소를 가리켜요. 이벤트가 트리를 타고 흐르면서 핸들러가 하나씩 불릴 때마다, 그 값은 "지금 실행 중인 핸들러의 주인"으로 계속 바뀝니다.
+
+</Callout>
+
+정리하면 `target`은 이벤트가 처음 발생한 요소라서 전파 내내 고정이고,<Cite id="mdn-target" /> `currentTarget`은 지금 호출된 핸들러의 주인이라 단계마다 달라져요. 아래 툴바에서 버튼이든 라벨이든 아무 곳이나 눌러보세요. 핸들러는 바깥 `div` 하나에만 걸려 있어요.
+
+<CodePlayground
+  code={`import { useState } from "react";
+
+  function TargetVsCurrentTarget() {
+    const [info, setInfo] = useState(null);
+
+    const handleClick = (e) => {
+      setInfo({
+        target: e.target.dataset.name || e.target.tagName.toLowerCase(),
+        currentTarget: e.currentTarget.dataset.name,
+      });
+    };
+
+    return (
+      <div className="wrap">
+        <div className="toolbar" data-name="toolbar(div)" onClick={handleClick}>
+          <button className="btn" data-name="저장 버튼">
+            저장
+          </button>
+          <button className="btn" data-name="삭제 버튼">
+            삭제
+          </button>
+          <span className="label" data-name="라벨(span)">
+            툴바
+          </span>
+        </div>
+        <div className="info">
+          {info ? (
+            <div>
+              <div>e.target → {info.target}</div>
+              <div>e.currentTarget → {info.currentTarget}</div>
+            </div>
+          ) : (
+            "툴바 안의 아무 곳이나 클릭해보세요"
+          )}
+        </div>
+      </div>
+    );
+  }`}
+  css={`.wrap {
+    font-family: sans-serif;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    background: #eef2ff;
+    border: 2px solid #c7d2fe;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #6366f1;
+    color: white;
+    cursor: pointer;
+  }
+
+  .label {
+    color: #4338ca;
+    font-size: 14px;
+  }
+
+  .info {
+    margin-top: 14px;
+    padding: 12px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.7;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+저장 버튼을 누르면 `target`은 "저장 버튼"인데 `currentTarget`은 늘 "toolbar(div)"로 고정이죠. 이 둘이 같은지 비교하는 패턴이 실전에서 꽤 유용해요. 모달 바깥 배경을 클릭하면 닫히게 만들 때, `e.target === e.currentTarget`일 때만 닫으면 내부 콘텐츠 클릭은 무시할 수 있거든요. [모달과 popover 이야기](/posts/dialog-and-popover-modal-as-standard)에서 다룬 닫기 동작도 결국 이 비교가 바탕이에요.
+
+지금 이벤트가 어느 단계에 있는지는 `e.eventPhase`로 알 수 있어요. 위 첫 데모에서 로그에 찍힌 capture, target, bubble이 바로 이 값을 풀어 쓴 거예요.
+
+<Callout variant="info">
+`eventPhase`는 숫자 상수로 단계를 알려줘요.
+
+• `0` (NONE): 지금 처리 중이 아님<br/>
+• `1` (CAPTURING_PHASE): 캡처링 단계, 조상에서 타깃으로 내려가는 중<br/>
+• `2` (AT_TARGET): 이벤트가 타깃 요소에 도달<br/>
+• `3` (BUBBLING_PHASE): 버블링 단계, 타깃에서 조상으로 올라가는 중
+
+</Callout>
+
+한 가지 함정이 있어요. `currentTarget`은 핸들러가 실행되는 동안에만 값이 있어요. 핸들러 안에서 `setTimeout`이나 `await` 뒤에 `e.currentTarget`을 읽으면 `null`이 나와요.<Cite id="mdn-current-target" /> 핸들러가 이미 끝나서 전파가 종료됐기 때문이죠. 비동기로 넘어가기 전에 필요한 값을 미리 변수에 담아두세요.
+
+## 리스너 하나로 자식 전부 받기
+
+`target`이 전파 내내 고정이라는 성질은 이벤트 위임(event delegation)의 바탕이 돼요. 목록의 항목마다 리스너를 거는 대신, 부모에 리스너 하나만 걸고 버블링으로 올라온 이벤트의 `target`을 보고 실제로 눌린 항목을 알아내는 방식이에요.
+
+아래 목록에는 클릭 리스너가 `ul` 하나에만 걸려 있어요. 항목을 추가해도 새 항목에 리스너를 따로 붙이지 않는데, 클릭이 잘 잡힙니다. `e.target.closest("li")`로 어느 항목이 눌렸는지 찾거든요.
+
+<CodePlayground
+  code={`import { useState } from "react";
+
+  function DelegationDemo() {
+    const [items, setItems] = useState(["사과", "바나나", "포도"]);
+    const [picked, setPicked] = useState(null);
+
+    const handleClick = (e) => {
+      const li = e.target.closest("li");
+      if (!li) return;
+      setPicked(li.dataset.fruit);
+    };
+
+    const addItem = () =>
+      setItems((prev) => [...prev, "새 항목 " + (prev.length + 1)]);
+
+    return (
+      <div className="wrap">
+        <button className="add" onClick={addItem}>
+          항목 추가
+        </button>
+        <ul className="list" onClick={handleClick}>
+          {items.map((it) => (
+            <li key={it} data-fruit={it} className="item">
+              {it}
+            </li>
+          ))}
+        </ul>
+        <p className="result">
+          {picked
+            ? picked + " 를 클릭했어요"
+            : "리스너는 ul 하나뿐이에요. 항목을 눌러보세요"}
+        </p>
+      </div>
+    );
+  }`}
+  css={`.wrap {
+    font-family: sans-serif;
+  }
+
+  .add {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #6366f1;
+    color: white;
+    cursor: pointer;
+    margin-bottom: 12px;
+  }
+
+  .list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 2px solid #c7d2fe;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .item {
+    padding: 12px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #e0e7ff;
+    color: #4338ca;
+  }
+
+  .item:last-child {
+    border-bottom: none;
+  }
+
+  .item:hover {
+    background: #eef2ff;
+  }
+
+  .result {
+    margin-top: 14px;
+    color: #475569;
+    font-size: 14px;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+만약 항목마다 리스너를 따로 걸었다면, 항목을 추가할 때마다 새 리스너를 등록해야 하고 제거할 때도 일일이 떼야 했을 거예요. 위임은 그 일을 부모 하나로 줄여줘요. React가 `onClick` 같은 핸들러를 루트에서 합성 이벤트로 처리하는 것도 같은 원리를 내부에 깔고 있는 거예요.
+
+## 전파를 멈추는 두 가지 방법
+
+버블링이 늘 반가운 건 아니에요. 자식의 클릭이 부모까지 올라가서 엉뚱한 핸들러를 깨우기도 하거든요. 이럴 때 `e.stopPropagation()`을 부르면 이벤트가 더 이상 위로 올라가지 않아요. 아래 데모에서 체크박스를 켜고 자식 버튼을 눌러보세요. 부모 핸들러가 더는 불리지 않습니다.
+
+<CodePlayground
+  code={`import { useState } from "react";
+
+  function StopPropagationDemo() {
+    const [stop, setStop] = useState(false);
+    const [log, setLog] = useState([]);
+
+    const onParent = () => setLog((prev) => [...prev, "부모 핸들러 실행"]);
+
+    const onChild = (e) => {
+      if (stop) e.stopPropagation();
+      setLog((prev) => [
+        ...prev,
+        "자식 핸들러 실행" + (stop ? " (전파 멈춤)" : ""),
+      ]);
+    };
+
+    return (
+      <div className="wrap">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={stop}
+            onChange={(e) => {
+              setStop(e.target.checked);
+              setLog([]);
+            }}
+          />
+          자식에서 stopPropagation 호출
+        </label>
+        <div className="parent" onClick={onParent}>
+          부모
+          <button className="child" onClick={onChild}>
+            자식 버튼
+          </button>
+        </div>
+        <div className="log">
+          {log.length === 0 ? (
+            <span className="hint">자식 버튼을 클릭해보세요</span>
+          ) : (
+            log.map((l, i) => <div key={i}>{l}</div>)
+          )}
+        </div>
+      </div>
+    );
+  }`}
+  css={`.wrap {
+    font-family: sans-serif;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: #334155;
+    cursor: pointer;
+  }
+
+  .parent {
+    padding: 18px;
+    background: #eef2ff;
+    border: 2px solid #c7d2fe;
+    border-radius: 8px;
+    color: #4338ca;
+    cursor: pointer;
+  }
+
+  .child {
+    display: block;
+    margin-top: 10px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    background: #6366f1;
+    color: white;
+    cursor: pointer;
+  }
+
+  .log {
+    margin-top: 14px;
+    padding: 10px;
+    background: #1e293b;
+    color: #e2e8f0;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 13px;
+    min-height: 50px;
+  }
+
+  .hint {
+    color: #94a3b8;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+비슷해 보이는 메서드로 `stopImmediatePropagation()`이 있는데, 둘은 멈추는 범위가 달라요. 같은 요소에 같은 타입의 리스너를 여러 개 걸 수 있는데, `stopPropagation()`은 부모로 올라가는 것만 막고 같은 요소에 걸린 나머지 리스너는 그대로 실행해요. 반면 `stopImmediatePropagation()`은 같은 요소에 남아 있는 다른 리스너까지 그 자리에서 멈춥니다.<Cite id="mdn-stop-immediate" />
+
+<Callout variant="warning">
+"If stopImmediatePropagation() is invoked during one such call, no remaining listeners will be called, either on that element or any other element." - MDN
+
+한 리스너에서 이걸 부르면 그 요소든 다른 어떤 요소든 남은 리스너가 하나도 안 불려요. 같은 요소에 여러 리스너를 등록해두는 라이브러리와 충돌할 수 있으니, 정말 전부 끊어야 할 때만 쓰는 게 안전해요.
+
+</Callout>
+
+## 버블링하지 않는 이벤트들
+
+모든 이벤트가 버블링하는 건 아니에요. `focus`, `blur`, `mouseenter`, `mouseleave` 같은 이벤트는 버블링 단계가 없어요. 이건 명세에서 각 이벤트의 `bubbles` 값이 `false`로 정해져 있기 때문인데, `bubbles`가 `false`면 타깃 단계에서 처리가 끝나고 위로 올라가지 않거든요.
+
+그래서 이런 이벤트는 부모에 리스너를 걸어 위임받기가 어려워요. 대신 버블링되는 형제 이벤트가 따로 있어요. `focus`/`blur` 대신 `focusin`/`focusout`을 쓰면 버블링되니까 부모에서 받을 수 있고, `mouseenter`/`mouseleave` 자리에는 `mouseover`/`mouseout`이 버블링 대안이에요. 폼 전체의 포커스 이동을 한곳에서 추적하고 싶다면 `focusin`을 부모에 거는 식이죠.
+
+리스너를 다 걸었다면 떼어내는 것도 챙겨야 해요. `addEventListener`에 `signal` 옵션을 넘기면 여러 리스너를 한 번에 정리할 수 있는데, 이 방법은 [AbortSignal 이야기](/posts/abort-signal-beyond-fetch)에서 따로 다뤘어요.
+
+<FAQ
+  items={[
+    {
+      question: "e.target과 e.currentTarget은 언제 같아지나요?",
+      answer:
+        "이벤트가 발생한 요소에 직접 핸들러가 걸려 있을 때 같아져요. 핸들러가 붙은 요소를 그대로 클릭하면 클릭된 요소와 핸들러 주인이 같으니까요. 자식을 클릭해서 버블링으로 올라온 경우에만 둘이 갈라집니다.",
+    },
+    {
+      question: "React에서도 target과 currentTarget이 똑같이 동작하나요?",
+      answer:
+        "네, 합성 이벤트의 target과 currentTarget도 같은 의미예요. target은 실제 클릭된 DOM 요소, currentTarget은 onClick이 걸린 요소를 가리켜요. 다만 React는 비동기 처리 후 합성 이벤트 객체를 재사용하던 시절이 있어서, 핸들러 바깥에서 e.currentTarget을 읽는 건 네이티브와 마찬가지로 피하는 게 좋아요.",
+    },
+  ]}
+/>
+
+`target`은 실제로 클릭된 요소, `currentTarget`은 지금 핸들러가 붙은 요소예요. 둘이 갈라져 보였던 건 버그가 아니라 이벤트가 트리를 타고 흐른다는 증거였던 거죠. 이 흐름을 한 번 그려두면, 위임으로 리스너를 줄이고 전파를 멈추는 일까지 같은 그림 위에서 설명돼요.
+
+<References
+  items={[
+    {
+      id: "mdn-target",
+      title: "MDN - Event: target property",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Event/target",
+      description: "이벤트가 처음 발생한 요소를 가리키는 target의 정의와 위임 활용",
+    },
+    {
+      id: "mdn-current-target",
+      title: "MDN - Event: currentTarget property",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Event/currentTarget",
+      description: "핸들러가 붙은 요소를 가리키는 currentTarget, 핸들러 바깥에서 null이 되는 동작",
+    },
+    {
+      id: "mdn-event-bubbling",
+      title: "MDN - Event bubbling",
+      href: "https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Event_bubbling",
+      description: "캡처링, 타깃, 버블링 3단계 전파와 이벤트 위임 설명",
+    },
+    {
+      id: "mdn-event-phase",
+      title: "MDN - Event: eventPhase property",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Event/eventPhase",
+      description: "NONE, CAPTURING_PHASE, AT_TARGET, BUBBLING_PHASE 상수 값",
+    },
+    {
+      id: "mdn-add-event-listener",
+      title: "MDN - EventTarget: addEventListener() method",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener",
+      description: "capture 옵션과 레거시 boolean 세 번째 인자의 동등성",
+    },
+    {
+      id: "mdn-stop-immediate",
+      title: "MDN - Event: stopImmediatePropagation() method",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Event/stopImmediatePropagation",
+      description: "stopPropagation과 stopImmediatePropagation의 차단 범위 차이",
+    },
+    {
+      id: "whatwg-dom",
+      title: "WHATWG - DOM Standard, Events",
+      href: "https://dom.spec.whatwg.org/#dom-event-eventphase",
+      description: "전파 단계와 currentTarget, stopPropagation의 규범 정의",
+    },
+  ]}
+/>
