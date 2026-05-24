@@ -1,5 +1,6 @@
 export type MotifKey =
   | "typescript"
+  | "javascript"
   | "nextjs"
   | "react-native"
   | "react"
@@ -50,6 +51,7 @@ export interface BannerInput {
 
 const TAG_TO_MOTIF: Array<[RegExp, MotifKey]> = [
   [/^TypeScript$/i, "typescript"],
+  [/^(JavaScript|JS|바닐라 JS|Vanilla JS)$/i, "javascript"],
   [/^(Next\.js|App Router|React Server Components|RSC)$/i, "nextjs"],
   [/^React Native$/i, "react-native"],
   [/^React$/i, "react"],
@@ -98,6 +100,7 @@ const MOTIF_PRIORITY: MotifKey[] = [
   "layout",
   "selector",
   "css",
+  "javascript",
 ];
 
 const PALETTES: Record<MotifKey, BannerPalette> = {
@@ -107,6 +110,13 @@ const PALETTES: Record<MotifKey, BannerPalette> = {
     primary: "#3178c6",
     accent: "#60a5fa",
     text: "#dbeafe",
+  },
+  javascript: {
+    bg: "#1c1a08",
+    bgAccent: "#3a3410",
+    primary: "#f7df1e",
+    accent: "#fde047",
+    text: "#fef9c3",
   },
   react: {
     bg: "#0a1722",
