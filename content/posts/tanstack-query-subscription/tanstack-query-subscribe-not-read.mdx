@@ -1,0 +1,158 @@
+---
+title: "TanStack Query, 값이 아니라 구독"
+description: "getQueryData 로 값만 꺼내 그렸더니 화면이 안 바뀌는 그 순간을 풀어요."
+date: 2026-05-29
+tags: ["React", "TanStack Query", "데이터 페칭", "서버 상태"]
+series: "TanStack Query를 구독으로 다루기"
+seriesOrder: 1
+published: true
+---
+
+`queryClient.getQueryData(['todos'])` 로 값을 꺼내서 화면에 박은 적이 있어요. 분명 다른 화면에서 목록을 갱신했는데, 이쪽만 옛날 값 그대로 멈춰 있더라구요. [TanStack Query](https://tanstack.com/query/latest) 의 `useQuery` 는 값을 읽어오는 함수가 아니라 캐시의 변화를 구독하는 장치예요. 화면이 서버 상태를 따라가려면 값을 한 번 읽는 게 아니라 변화를 구독해야 한다는 게 이 시리즈의 축이에요.
+
+## 값 읽기와 변화 구독은 다른 일이에요
+
+`getQueryData` 는 캐시라는 `Map` 에서 값 하나를 꺼내는 동기 함수예요. 호출하는 그 순간의 값을 복사해 줄 뿐이라, 나중에 그 데이터가 백그라운드에서 갱신돼도 컴포넌트는 아무것도 모르고 멈춰 있어요. 쿼리가 캐시에 없으면 `undefined` 가 돌아오고요.<Cite id="tanstack-queryclient" />
+
+`useQuery` 는 다르게 움직여요. 안쪽에서 해당 `queryKey` 의 캐시 엔트리에 옵저버를 하나 붙여둬요. 그 엔트리가 바뀌면, 페치가 시작됐든 성공했든 백그라운드로 다시 받았든, 옵저버가 컴포넌트를 리렌더시켜요. `subscribe` 한 줄에 숨은 구독 구조가 그대로 들어 있는 셈인데, 이 패턴 자체는 [옵저버 패턴을 다룬 글](/posts/observer-pattern-redux-zustand) 에서 따로 풀어놨어요.<Cite id="tanstack-usequery" />
+
+<Callout variant="info">
+"A React Hook that subscribes to a query, providing its data and status." - TanStack Query
+
+useQuery 를 "데이터를 가져오는 훅" 으로만 보면 절반만 본 거예요. 핵심은 subscribes, 캐시를 구독한다는 데 있어요.
+
+</Callout>
+
+그래서 `useQuery` 는 단순한 값이 아니라 상태를 같이 줘요. 데이터가 있느냐를 말하는 `status` 는 `pending`, `error`, `success` 셋 중 하나고, 지금 네트워크를 타고 있느냐를 말하는 `fetchStatus` 는 `fetching`, `paused`, `idle` 로 따로 돌아요. 둘이 나뉘어 있어서 "데이터는 이미 있는데 백그라운드로 새로 받는 중" 같은 상태도 표현돼요. 스냅샷 한 장으로는 못 잡는 부분이에요.
+
+이 두 축에서 우리가 화면에 자주 쓰는 boolean 값들이 파생돼요. `isPending` 은 아직 데이터가 없는 상태고, `isFetching` 은 지금 요청이 도는 중이에요. 결과가 어느 쪽으로 끝났는지는 `isSuccess` 와 `isError` 가 알려주고요. `isLoading` 은 이 둘을 겹친 `isPending && isFetching` 이라 "데이터도 없고 처음 받는 중" 일 때만 켜져요. 백그라운드로 다시 받는 중인지는 `isRefetching`, 캐시가 낡았는지는 `isStale` 로 따로 봐요.
+
+<Callout variant="tip">
+SWR 을 쓰다 왔다면 `isValid` 나 `isValidating` 을 찾게 되는데, TanStack Query 엔 `isValid` 가 없어요. "지금 검증 중인가" 가 궁금한 거라면 그 자리는 `isFetching` 이에요. 처음 로딩과 백그라운드 갱신을 가르고 싶으면 `isLoading` 과 `isFetching` 을 나눠 보면 돼요.
+
+</Callout>
+
+<FlowDiagram
+  height={300}
+  caption="같은 캐시를 useQuery 는 구독하고, getQueryData 는 한 번 복사만 해요."
+  nodes={[
+    { id: "cache", title: "QueryCache", description: "todos 캐시 엔트리", x: 0, y: 90, kind: "accent" },
+    { id: "obs", title: "useQuery", description: "구독해서 변화 수신", x: 240, y: 0 },
+    { id: "snap", title: "getQueryData", description: "그 순간 값만 복사", x: 240, y: 180 },
+    { id: "render", title: "컴포넌트 리렌더", x: 480, y: 0 },
+    { id: "stale", title: "값 그대로 멈춤", x: 480, y: 180 }
+  ]}
+  edges={[
+    { from: "cache", to: "obs", label: "변하면 통지", animated: true },
+    { from: "obs", to: "render", label: "리렌더" },
+    { from: "cache", to: "snap", label: "1회 복사" },
+    { from: "snap", to: "stale", label: "이후 못 받음" }
+  ]}
+/>
+
+구독이라서 따라오는 보너스도 있어요. 같은 `queryKey` 를 열 군데에서 `useQuery` 로 불러도, 실제 요청은 한 번만 나가요. 진행 중인 페치가 있으면 새 네트워크 요청 대신 그 결과를 같이 받거든요. 다들 같은 캐시 엔트리를 구독하니까요.
+
+## v5에서 onError가 사라진 이유
+
+React Query v4 까지 쓰던 습관 하나가 v5 에서 막혀요. `useQuery` 에 달던 `onError`, `onSuccess`, `onSettled` 콜백이 전부 제거됐거든요. 뮤테이션 쪽 `useMutation` 에는 그대로 남아 있어서 더 헷갈려요.<Cite id="tanstack-v5" />
+
+<Callout variant="warning">
+"onSuccess, onError and onSettled have been removed from Queries." - TanStack Query v5 마이그레이션 가이드
+
+쿼리에서만 빠졌어요. 같은 쿼리를 세 군데서 구독하면 onError 도 세 번 불렸으니, 토스트가 세 번 뜨는 식이었죠. 구독 단위로 도는 콜백이라 중복이 생겼고, 그래서 정리된 거예요.
+
+</Callout>
+
+대신 에러를 다루는 자리가 세 곳으로 나뉘었어요. 첫째는 렌더 안에서 `status` 로 갈라주는 가장 기본적인 방법이에요.
+
+```tsx
+const { data, error, status } = useQuery({ queryKey: ['todos'], queryFn })
+
+if (status === 'pending') return <Spinner />
+if (status === 'error') return <p>에러: {error.message}</p>
+return <TodoList items={data} />
+```
+
+둘째는 화면 단위로 던지는 방법이에요. `throwOnError` 를 켜면 쿼리 에러가 렌더 도중 throw 돼서 상위 Error Boundary 가 받아요. boolean 대신 함수를 주면 "5xx 만 boundary 로, 4xx 는 컴포넌트에서" 같은 선택적 위임도 돼요.
+
+```tsx
+useQuery({
+  queryKey: ['todos'],
+  queryFn,
+  throwOnError: (error) => error.status >= 500,
+})
+```
+
+셋째가 시니어 코드에서 자주 보이는 자리예요. 토스트 같은 부수 효과는 컴포넌트마다 달지 말고, `QueryCache` 의 전역 `onError` 한 곳에 두는 거예요. 여기 콜백은 쿼리당 한 번만 불려서 중복이 안 생겨요.<Cite id="tanstack-querycache" />
+
+```tsx
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      if (query.meta?.showToast !== false) {
+        toast.error(`불러오기 실패: ${error.message}`)
+      }
+    },
+  }),
+})
+```
+
+`query.meta` 가 여기서 빛을 발해요. 전역 핸들러로 기본 동작을 깔아두고, 예외만 쿼리에서 `meta: { showToast: false }` 로 꺼주는 거죠. 끄고 켜는 스위치를 선언적으로 들고 다니는 셈이에요.
+
+하나 더, `fetch` 를 쓴다면 함정이 있어요. `fetch` 는 404 나 500 응답에도 reject 하지 않아서, 직접 throw 해주지 않으면 에러가 성공으로 캐시돼요.
+
+```tsx
+const queryFn = async () => {
+  const res = await fetch('/api/todos')
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
+```
+
+재시도도 한번 손봐두면 좋아요. 기본값이 클라이언트에서 세 번인데, 401 이나 404 는 다시 받아봐야 똑같거든요.
+
+```tsx
+useQuery({
+  queryKey: ['todos'],
+  queryFn,
+  retry: (failureCount, error) => {
+    if (error.status === 401 || error.status === 404) return false
+    return failureCount < 3
+  },
+})
+```
+
+## 다음 편으로
+
+`useQuery` 를 "구독" 으로 보면, 화면이 왜 알아서 갱신되는지도 에러 콜백이 왜 사라졌는지도 한 줄로 설명돼요. 값을 읽는 게 아니라 변화를 구독하는 거니까요.
+
+이 구독 모델을 손에 쥐고 나면 그동안 외워 쓰던 옵션들이 다르게 보여요. 다음 편에서는 `queryKey`, `staleTime`, `gcTime`, `select` 가 전부 구독을 다루는 손잡이라는 걸 풀고, 읽기와 쓰기가 만나는 낙관적 업데이트까지 이어볼게요.
+
+<References
+  items={[
+    {
+      id: "tanstack-usequery",
+      title: "TanStack Query - useQuery 레퍼런스",
+      href: "https://tanstack.com/query/latest/docs/framework/react/reference/useQuery",
+      description: "useQuery 가 쿼리를 구독한다는 정의와 status / fetchStatus 분리",
+    },
+    {
+      id: "tanstack-queryclient",
+      title: "TanStack Query - QueryClient 레퍼런스",
+      href: "https://tanstack.com/query/latest/docs/reference/QueryClient",
+      description: "getQueryData 의 동기 스냅샷 읽기 동작",
+    },
+    {
+      id: "tanstack-v5",
+      title: "TanStack Query - v5 마이그레이션 가이드",
+      href: "https://tanstack.com/query/latest/docs/framework/react/guides/migrating-to-v5",
+      description: "useQuery 에서 onError, onSuccess, onSettled 제거",
+    },
+    {
+      id: "tanstack-querycache",
+      title: "TanStack Query - QueryCache 레퍼런스",
+      href: "https://tanstack.com/query/latest/docs/reference/QueryCache",
+      description: "QueryCache 전역 onError 콜백으로 공통 에러 처리",
+    },
+  ]}
+/>
