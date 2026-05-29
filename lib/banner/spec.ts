@@ -3,6 +3,7 @@ export type MotifKey =
   | "javascript"
   | "nextjs"
   | "react-native"
+  | "tanstack-query"
   | "react"
   | "css"
   | "design-system"
@@ -54,6 +55,7 @@ const TAG_TO_MOTIF: Array<[RegExp, MotifKey]> = [
   [/^(JavaScript|JS|바닐라 JS|Vanilla JS)$/i, "javascript"],
   [/^(Next\.js|App Router|React Server Components|RSC)$/i, "nextjs"],
   [/^React Native$/i, "react-native"],
+  [/^(TanStack Query|React Query|React-Query)$/i, "tanstack-query"],
   [/^React$/i, "react"],
   [/^(디자인 시스템|디자인 토큰|Atomic Design|Design System)$/i, "design-system"],
   [/^(CSS-in-JS|Emotion|Vanilla Extract|Panda CSS|Linaria|Tailwind|CSS Modules)$/i, "styling"],
@@ -80,6 +82,7 @@ const MOTIF_PRIORITY: MotifKey[] = [
   "typescript",
   "nextjs",
   "react-native",
+  "tanstack-query",
   "react",
   "design-system",
   "accessibility",
@@ -131,6 +134,13 @@ const PALETTES: Record<MotifKey, BannerPalette> = {
     primary: "#61dafb",
     accent: "#fbbf24",
     text: "#e0f2fe",
+  },
+  "tanstack-query": {
+    bg: "#0a1722",
+    bgAccent: "#13293d",
+    primary: "#f8485e",
+    accent: "#ffd23e",
+    text: "#ffe4e6",
   },
   nextjs: {
     bg: "#08090d",
