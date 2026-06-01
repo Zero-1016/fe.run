@@ -4,9 +4,16 @@ import { useEffect, useRef } from "react";
 
 import { useIsOnline } from "@/lib/use-is-online";
 
-// 사이트 테마와 동일한 신호(<html>.dark 클래스)를 읽어 giscus 테마로 변환
+// 사이트 테마 신호를 읽어 giscus 테마로 변환.
+// <html>.dark 클래스는 하이드레이션 도중 일시적으로 비워질 수 있어
+// (ThemeToggle 의 useSyncExternalStore 초기 스냅샷이 light) giscus 가 잘못된
+// 테마로 로드된다. 그래서 클래스가 아니라 소스 오브 트루스(localStorage +
+// prefers-color-scheme)를 직접 읽는다. ThemeToggle 의 판단 기준과 동일.
 function getGiscusTheme() {
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  const stored = localStorage.getItem("theme");
+  const dark =
+    stored === "dark" || (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  return dark ? "dark" : "light";
 }
 
 export function Comments() {
@@ -37,20 +44,38 @@ export function Comments() {
 
   // 사이트 테마 토글에 맞춰 giscus iframe 테마를 동기화
   useEffect(() => {
-    const observer = new MutationObserver(() => {
+    function syncTheme() {
       const iframe = document.querySelector<HTMLIFrameElement>("iframe.giscus-frame");
       iframe?.contentWindow?.postMessage(
         { giscus: { setConfig: { theme: getGiscusTheme() } } },
         "https://giscus.app"
       );
-    });
+    }
 
+    // 1) 사이트 테마 토글 시 동기화
+    const observer = new MutationObserver(syncTheme);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class"],
     });
 
-    return () => observer.disconnect();
+    // 2) giscus 로드(fetching) 완료 시 현재 테마로 재동기화.
+    //    초기 로드 중에는 iframe 이 아직 메시지를 듣지 않아 setConfig 가 유실된다.
+    //    giscus 는 준비되면 부모 창에 메시지를 보내므로, 그 시점에 다시 보낸다.
+    function onGiscusMessage(event: MessageEvent) {
+      if (event.origin !== "https://giscus.app") return;
+      const data = event.data as { giscus?: Record<string, unknown> } | null;
+      if (!data?.giscus) return;
+      // 높이 변동(resize)만 알리는 메시지는 무시하고, 로드/상태 변경에만 재동기화
+      if ("resizeHeight" in data.giscus && Object.keys(data.giscus).length === 1) return;
+      syncTheme();
+    }
+    window.addEventListener("message", onGiscusMessage);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("message", onGiscusMessage);
+    };
   }, []);
 
   // giscus 미설정 시 렌더링 안 함
