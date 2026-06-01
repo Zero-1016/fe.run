@@ -68,6 +68,14 @@ export default function RootLayout({
   return (
     <html lang="ko" suppressHydrationWarning>
       <head>
+        {/* 첫 페인트 전에 테마 클래스를 적용해 light→dark 깜빡임과
+            giscus 가 잘못된 테마로 로드되는 경쟁을 막는다.
+            ThemeToggle 의 판단 기준(localStorage + prefers-color-scheme)과 동일. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("theme");var d=t==="dark"||(!t&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})();`,
+          }}
+        />
         <link
           rel="preload"
           as="font"
