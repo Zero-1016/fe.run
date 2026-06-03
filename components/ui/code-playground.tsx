@@ -61,6 +61,8 @@ interface CodePlaygroundProps {
   css?: string;
   template?: Template;
   showPreview?: boolean;
+  /** Sandpack 번들러가 설치할 외부 npm 패키지. 예: { zod: "^3.23.8" } */
+  dependencies?: Record<string, string>;
 }
 
 interface BuiltPlayground {
@@ -228,6 +230,7 @@ export function CodePlayground({
   css,
   template = "react",
   showPreview = true,
+  dependencies,
 }: CodePlaygroundProps) {
   const isDark = useIsDark();
   const built = buildFiles(code, template, css);
@@ -254,6 +257,9 @@ export function CodePlayground({
         template={built.template}
         files={built.files}
         theme={isDark ? "dark" : "light"}
+        customSetup={
+          dependencies && Object.keys(dependencies).length > 0 ? { dependencies } : undefined
+        }
         options={{
           recompileMode: "delayed",
           recompileDelay: 500,

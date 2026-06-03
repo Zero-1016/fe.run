@@ -83,6 +83,7 @@ interface CodePlaygroundProps {
   css?: string; // 선택: CSS 파일
   template?: "react" | "vanilla" | "vanilla-ts" | "react-ts"; // 기본값: "react"
   showPreview?: boolean; // 기본값: true
+  dependencies?: Record<string, string>; // 선택: 설치할 외부 npm 패키지
 }
 ```
 
@@ -91,6 +92,24 @@ interface CodePlaygroundProps {
 - `react`/`react-ts`: `code`를 App.js로, `css`를 styles.css로 생성. 미리보기 표시.
 - `vanilla`에서 `code`가 CSS만이면: 코드 에디터만 표시 (미리보기 없음).
 - React 코드에 `export default`가 없으면 자동 추가. `import React`도 자동 추가.
+- **외부 라이브러리(zod, zustand 등)를 import하려면 `dependencies`에 명시**해야 함.
+  Sandpack 번들러가 명시된 패키지만 설치한다. 빠뜨리면 `Could not find dependency`
+  런타임 에러가 난다. 버전은 `"^3.23.8"`처럼 pinning 권장(`"latest"`도 가능).
+  오프라인이면 설치 없이 코드만 표시되므로 데모는 온라인에서만 실행된다.
+
+```mdx
+<CodePlayground
+  dependencies={{ zod: "^3.23.8" }}
+  code={`import { z } from "zod";
+
+const schema = z.object({ id: z.number() });
+
+function Demo() {
+const result = schema.safeParse({ id: "42" });
+return <p>{result.success ? "통과" : "검증 실패"}</p>;
+}`}
+/>
+```
 
 ```mdx
 {/* React 컴포넌트 + CSS */}
