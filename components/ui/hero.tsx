@@ -8,7 +8,7 @@ export function Hero() {
       <div className="relative z-10 mx-auto max-w-7xl px-6 py-16 sm:py-24 md:py-28">
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">갈리는 자리를 짚어요</h1>
         <p className="mt-4 max-w-xl text-base leading-relaxed text-secondary sm:mt-5 sm:text-lg">
-          코드를 짜다 마주친 궁금한 것들을 하나씩 따라가며 정리합니다.
+          읽고 끝내는 대신, 코드로 직접 돌려보며 따라갑니다.
         </p>
       </div>
     </section>

@@ -1,8 +1,8 @@
 export const siteConfig = {
-  name: "Tech Blog",
+  name: "fe.run",
   description:
-    "코드를 짜다 마주친 궁금한 것들을 하나씩 따라가며 정리하는 프론트엔드 기록. React, CSS, 웹 표준, 성능과 접근성 노트를 다룹니다.",
-  shortDescription: "갈리는 자리를 짚는 프론트엔드 기록",
+    "코드가 갈리는 자리를 직접 돌려보며 짚는 프론트엔드 기록. React, CSS, 웹 표준, 성능과 접근성을 읽고 끝내지 않고 데모로 확인합니다.",
+  shortDescription: "갈리는 자리를 직접 돌려보는 프론트엔드 기록",
   url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.frontend.run").replace(/\/$/, ""),
   locale: "ko_KR",
   author: "Zero-1016",

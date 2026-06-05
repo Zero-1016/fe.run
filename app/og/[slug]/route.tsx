@@ -121,7 +121,7 @@ export async function GET(_req: Request, { params }: Params) {
           letterSpacing: "0.08em",
         }}
       >
-        TECH BLOG
+        fe.run
       </div>
       <div
         style={{

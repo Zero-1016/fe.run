@@ -23,7 +23,7 @@ export async function Header() {
             height={28}
             className="rounded-[7px]"
           />
-          Tech Blog
+          fe.run
         </Link>
         <div className="flex items-center gap-1">
           <SearchButton isMac={isMac} isMobile={isMobile} />

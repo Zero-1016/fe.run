@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const title = searchParams.get("title") ?? "Tech Blog";
+  const title = searchParams.get("title") ?? "fe.run";
   const description = searchParams.get("description") ?? "";
 
   return new ImageResponse(
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
           letterSpacing: "0.05em",
         }}
       >
-        TECH BLOG
+        fe.run
       </div>
       <div
         style={{
