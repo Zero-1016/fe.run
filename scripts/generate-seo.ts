@@ -2,10 +2,7 @@ import { writeFileSync, mkdirSync } from "fs";
 import { resolve, join } from "path";
 import { type PostMeta, readPostsFromMdx } from "./lib/posts-from-mdx";
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.frontend.run").replace(
-  /\/$/,
-  ""
-);
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://frontend.run").replace(/\/$/, "");
 
 function escapeXml(value: string): string {
   return value
