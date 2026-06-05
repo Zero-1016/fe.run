@@ -27,6 +27,10 @@
 }
 
 :root {
+  /* HeroGraph 배경 토큰. currentColor + 변수만 참조하므로 라이트/다크는 토큰만 교체. */
+  --graph-ink: rgba(20, 20, 28, 0.55);
+  --graph-accent: #7c5cff;
+
   --color-bg: #ffffff;
   --color-bg-secondary: #f9fafb;
   --color-text: #171717;
@@ -39,6 +43,9 @@
 }
 
 .dark {
+  --graph-ink: rgba(255, 255, 255, 0.55);
+  --graph-accent: #9d86ff; /* 다크에선 약간 밝게 올려야 보임 */
+
   --color-bg: #09090b;
   --color-bg-secondary: #111113;
   --color-text: #e4e4e7;
