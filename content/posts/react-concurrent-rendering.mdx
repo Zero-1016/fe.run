@@ -1,0 +1,297 @@
+---
+title: "리액트 동시성, 멈출 수 있는 렌더"
+description: "긴 목록을 그리는 사이 입력이 버벅인다면, 렌더링을 멈출 수 있느냐가 갈림길이에요."
+date: 2026-06-06
+tags: ["React", "렌더링", "concurrent", "Hooks"]
+published: true
+---
+
+검색창에 글자를 빠르게 치는데 한 박자씩 밀린 적 있죠. 화면에선 수천 개 결과가 다시 그려지는 중이고, 그게 끝나야 방금 누른 키가 반영되거든요. React 18이 바꾼 게 바로 이 지점이에요. 렌더링을 중간에 멈출 수 있게 되면서, 급한 입력이 큰 렌더를 끊고 먼저 처리될 수 있게 됐어요.
+
+## 멈출 수 없던 React 17의 렌더링
+
+React 17 이하에서 렌더링은 한번 시작하면 못 멈춰요. `setState` 하나가 큰 트리의 리렌더를 부르면, React는 그 트리를 전부 그려서 DOM에 커밋할 때까지 메인 스레드를 놓지 않거든요. 여기서 렌더(render)는 컴포넌트 함수를 실행해 화면에 그릴 결과를 계산하는 단계고, 커밋(commit)은 그 결과를 실제 DOM에 반영하는 단계예요. 어떤 변화가 리렌더를 부르는지는 [지난 글](/posts/react-rerender-conditions)에서 정리했어요.
+
+문제는 그 사이에 들어온 클릭이나 키 입력이에요. 렌더가 끝날 때까지 큐에서 차례를 기다려야 해서, 무거운 화면일수록 입력이 한 박자씩 밀려요.<Cite id="react-v18-blog" />
+
+<FlowDiagram
+  height={320}
+  caption="React 17, 한번 시작한 렌더는 끝까지 메인 스레드를 잡아요"
+  nodes={[
+    { id: "a", title: "키 입력", description: "setState 발생", x: 0, y: 0, kind: "accent" },
+    { id: "b", title: "렌더 시작", description: "트리 다시 그리기", x: 260, y: 0 },
+    { id: "c", title: "렌더 진행", description: "중단 불가", x: 520, y: 0, kind: "warning" },
+    { id: "d", title: "커밋", description: "DOM 반영, 화면 갱신", x: 780, y: 0 },
+    { id: "e", title: "그 사이 클릭", description: "큐에서 대기", x: 260, y: 190, kind: "warning" },
+  ]}
+  edges={[
+    { from: "a", to: "b", animated: true },
+    { from: "b", to: "c" },
+    { from: "c", to: "d", label: "끝까지 점유" },
+    { from: "e", to: "d", label: "렌더 끝난 뒤", animated: true },
+  ]}
+/>
+
+<Callout variant="warning">
+"With synchronous rendering, once an update starts rendering, nothing can interrupt it until the user can see the result on screen." - React v18 blog
+
+동기 렌더링에선 일단 렌더가 시작되면 화면에 결과가 보일 때까지 그 무엇도 끼어들 수 없어요. 입력이 밀리는 게 버그가 아니라 설계였던 거죠.
+
+</Callout>
+
+## 멈췄다 이어가는 React 18
+
+React 18의 concurrent renderer가 바꾼 핵심은 한 가지예요. 렌더링이 중단 가능(interruptible)해졌다는 것. React가 큰 렌더를 시작했다가 더 급한 업데이트가 오면 하던 일을 멈추고, 나중에 이어 그리거나 아예 버려요(abandon).
+
+그러면 화면이 깨지지 않을까 싶죠. 저도 처음엔 그게 걱정이었어요. 근데 React는 트리 전체 평가가 끝나기 전엔 DOM을 건드리지 않아서, 반쯤 그리다 만 중간 상태가 화면에 새지 않아요.<Cite id="react-v18-blog" />
+
+<FlowDiagram
+  height={320}
+  caption="React 18, 급한 업데이트가 오면 렌더를 멈췄다 이어가거나 버려요"
+  nodes={[
+    { id: "a", title: "렌더 시작", description: "큰 트리 그리는 중", x: 0, y: 100, kind: "accent" },
+    { id: "b", title: "급한 업데이트", description: "클릭이나 키 입력 도착", x: 300, y: 100, kind: "warning" },
+    { id: "c", title: "렌더 중단", description: "하던 일 멈춤", x: 600, y: 100, kind: "warning" },
+    { id: "d", title: "급한 일 먼저", description: "입력부터 반영", x: 900, y: 0, kind: "accent" },
+    { id: "e", title: "재개 또는 폐기", description: "이어 그리거나 버리고 재시작", x: 900, y: 210 },
+  ]}
+  edges={[
+    { from: "a", to: "b", label: "도중에" },
+    { from: "b", to: "c", animated: true },
+    { from: "c", to: "d", label: "우선" },
+    { from: "c", to: "e", label: "그 다음", animated: true },
+  ]}
+/>
+
+<Callout variant="info">
+"React may start rendering an update, pause in the middle, then continue later. It may even abandon an in-progress render altogether." - React v18 blog
+
+렌더를 시작했다가 중간에 멈추고 이어갈 수도, 진행 중이던 렌더를 통째로 버릴 수도 있어요. 17에선 상상도 못 하던 동작이에요.
+
+</Callout>
+
+## createRoot 한 줄이 가르는 경계
+
+여기서 헷갈리기 쉬운 게 있어요. React 18로 올리기만 하면 이 중단 가능한 렌더가 켜지는 게 아니에요. 새 동작은 `createRoot`로 앱을 마운트할 때만 활성화되고, 그 전까지는 React 17과 똑같이 동작해요.<Cite id="react-18-upgrade" />
+
+```jsx
+// React 17 방식, legacy 모드로 동작
+import { render } from "react-dom";
+
+render(<App />, document.getElementById("root"));
+
+// React 18 방식, concurrent renderer 활성화
+import { createRoot } from "react-dom/client";
+
+const root = createRoot(document.getElementById("root"));
+root.render(<App />);
+```
+
+<Callout variant="warning">
+"Until you switch to the new API, your app will behave as if it's running React 17." - React 18 upgrade guide
+
+새 API로 바꾸기 전까진 앱이 React 17처럼 굴러요. 버전 숫자만 올렸다고 동시성이 켜지는 게 아니라, `createRoot`가 스위치인 셈이죠.
+
+</Callout>
+
+`createRoot`로 바꾸면 딸려 오는 변화가 하나 더 있어요. 자동 batching이에요. 17에선 React 이벤트 핸들러 안에서만 여러 `setState`가 한 번의 리렌더로 묶였는데, `Promise`나 `setTimeout` 콜백 안에선 안 묶여서 렌더가 여러 번 돌았어요. 18의 `createRoot`에선 어디서 일어난 업데이트든 자동으로 묶여요.
+
+## 동시성으로 더 할 수 있는 것
+
+중단 가능한 렌더가 깔리면, 그 위에서 우선순위를 직접 다룰 수 있어요. 핵심 개념은 transition이에요. 타이핑이나 클릭처럼 즉시 반응해야 하는 급한 업데이트(urgent)와, 한 화면에서 다른 화면으로 넘어가는 안 급한 업데이트(transition)를 나누는 거죠.
+
+`useTransition`으로 안 급한 업데이트를 감싸면, 그 렌더가 도는 동안에도 입력은 막히지 않아요. `isPending` 값으로 전환이 진행 중인지도 알 수 있고요. 아래 데모에서 탭을 빠르게 눌러보세요. 각 탭은 일부러 무겁게 그려지는데, 버튼은 바로바로 반응하고 상태만 "전환 중"으로 바뀌어요.
+
+<CodePlayground
+  code={`import { useState, useTransition } from "react";
+
+  function App() {
+    const [tab, setTab] = useState("home");
+    const [isPending, startTransition] = useTransition();
+
+    function selectTab(next) {
+      startTransition(() => {
+        setTab(next);
+      });
+    }
+
+    return (
+      <div className="panel">
+        <nav className="tabs">
+          <button
+            className={tab === "home" ? "tab tab--on" : "tab"}
+            onClick={() => selectTab("home")}
+          >
+            홈
+          </button>
+          <button
+            className={tab === "photos" ? "tab tab--on" : "tab"}
+            onClick={() => selectTab("photos")}
+          >
+            사진
+          </button>
+          <button
+            className={tab === "about" ? "tab tab--on" : "tab"}
+            onClick={() => selectTab("about")}
+          >
+            소개
+          </button>
+        </nav>
+        <p className="status">{isPending ? "전환 중..." : "준비됨"}</p>
+        <HeavyPanel tab={tab} />
+      </div>
+    );
+  }
+
+  function HeavyPanel({ tab }) {
+    const rows = [];
+    for (let i = 0; i < 250; i++) {
+      rows.push(<HeavyRow key={i} tab={tab} index={i} />);
+    }
+    return <ul className="rows">{rows}</ul>;
+  }
+
+  function HeavyRow({ tab, index }) {
+    const start = performance.now();
+    while (performance.now() - start < 0.8) {}
+    return (
+      <li className="rows__item">
+        {tab} 줄 {index + 1}
+      </li>
+    );
+  }`}
+  css={`.panel {
+    font-family: sans-serif;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .tab {
+    padding: 6px 14px;
+    border: 1px solid #d0d0d0;
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  .tab--on {
+    background: #2563eb;
+    color: #fff;
+    border-color: #2563eb;
+  }
+
+  .status {
+    font-size: 13px;
+    color: #6b7280;
+    margin: 8px 0;
+  }
+
+  .rows {
+    list-style: none;
+    padding: 0;
+    max-height: 150px;
+    overflow: auto;
+    margin: 0;
+    border: 1px solid #eee;
+    border-radius: 6px;
+  }
+
+  .rows__item {
+    padding: 4px 10px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 13px;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+업데이트를 함수로 감싸기 애매할 때, 값만 쥐고 있는 경우엔 `useDeferredValue`가 더 어울려요. 새 값으로의 렌더를 백그라운드로 미루고, 준비될 때까지 이전 값을 계속 보여주거든요. debounce랑 뭐가 다른지는 [따로 정리한 글](/posts/use-deferred-value-vs-debounce)이 있어요.<Cite id="react-usedeferredvalue" />
+
+Suspense도 이 위에서 더 매끄러워져요. 네비게이션을 transition으로 감싸면, 새 화면 데이터가 준비될 때까지 이미 보이던 콘텐츠를 유지해요. 멀쩡히 보이던 화면이 갑자기 로딩 스피너로 되돌아가는 깜빡임을 막아주는 거죠.<Cite id="react-suspense" />
+
+## 동시성이 데려온 새 문제, tearing
+
+중단 가능한 렌더는 공짜가 아니에요. React가 렌더를 멈췄다 이어가는 사이, 외부 store의 값이 React 모르게 바뀔 수 있거든요. 그러면 같은 store를 읽는데도 화면의 어떤 부분은 옛 값, 어떤 부분은 새 값을 보여주는 일이 생겨요. 이 시각적 불일치를 tearing이라고 불러요.<Cite id="rfc-usesyncexternalstore" />
+
+<Callout variant="warning">
+"Mistakes can lead to data races and inconsistencies, which can lead to logical errors or visual tearing in the UI." - React RFC 0214
+
+외부 store를 잘못 구독하면 데이터 레이스가 나고, 그게 UI의 시각적 tearing으로 이어질 수 있어요. Redux나 Zustand 같은 라이브러리가 특히 신경 쓴 지점이에요.
+
+</Callout>
+
+그래서 나온 게 `useSyncExternalStore`예요. 외부 store를 읽을 때 동시성 환경에서도 모든 조각이 같은 값을 보도록 동기적으로 맞춰줘요.
+
+```jsx
+import { useSyncExternalStore } from "react";
+
+function subscribe(callback) {
+  window.addEventListener("online", callback);
+  window.addEventListener("offline", callback);
+  return () => {
+    window.removeEventListener("online", callback);
+    window.removeEventListener("offline", callback);
+  };
+}
+
+function useOnlineStatus() {
+  return useSyncExternalStore(subscribe, () => navigator.onLine);
+}
+```
+
+이 훅이 왜 상태관리 라이브러리의 밑바닥에 깔려 있는지는 [Zustand를 뜯어본 글](/posts/react-use-sync-external-store)에서 더 들어가요.
+
+## 결국 한 줄로 묶으면
+
+React 17과 18을 가르는 건 기능 목록이 아니라 한 문장이에요. 렌더링을 멈출 수 있느냐. 17은 못 멈춰서 무거운 렌더가 입력을 잡아먹었고, 18은 멈출 수 있게 되면서 그 위에 transition과 Suspense를 얹을 수 있게 됐어요. 그리고 멈출 수 있다는 그 전제 때문에 tearing 같은 새 숙제도 함께 왔고요. 지금 쓰는 앱이 `createRoot`로 떠 있는지부터 한번 확인해보세요. 거기서부터가 동시성의 출발선이에요.
+
+<FAQ items={[
+  { question: "React 18로 올리기만 하면 자동으로 빨라지나요?", answer: "아니에요. createRoot로 마운트하지 않으면 React 17과 동일하게 동작해요. 그리고 createRoot를 켜도 startTransition이나 useDeferredValue 같은 동시성 기능을 직접 써야 무거운 렌더 중에 입력이 매끄러워져요." },
+  { question: "startTransition과 useDeferredValue 중 뭘 써야 하나요?", answer: "업데이트를 일으키는 코드를 직접 감쌀 수 있으면 startTransition이 좋아요. 이미 만들어진 값만 손에 쥐고 있고 그 값으로 그리는 렌더를 미루고 싶으면 useDeferredValue가 어울려요." },
+  { question: "동시성 렌더링이면 컴포넌트가 두 번 실행될 수도 있나요?", answer: "네. 렌더가 중단되거나 버려지면 React가 같은 렌더를 다시 돌릴 수 있어요. 그래서 렌더 단계는 부수 효과 없이 순수해야 하고, 외부 값을 읽을 땐 useSyncExternalStore 같은 안전한 경로를 써야 해요." }
+]} />
+
+<References
+  items={[
+    {
+      id: "react-v18-blog",
+      title: "React - React v18.0 릴리스 노트",
+      href: "https://react.dev/blog/2022/03/29/react-v18",
+      description: "동시성 렌더링이 중단 가능하다는 정의와 automatic batching, transition 개념",
+    },
+    {
+      id: "react-18-upgrade",
+      title: "React - React 18 업그레이드 가이드",
+      href: "https://react.dev/blog/2022/03/08/react-18-upgrade-guide",
+      description: "createRoot 전환과 legacy 모드 동작, 자동 batching 적용 조건",
+    },
+    {
+      id: "react-usetransition",
+      title: "React - useTransition",
+      href: "https://react.dev/reference/react/useTransition",
+      description: "isPending과 startTransition으로 UI를 막지 않고 state를 업데이트하는 법",
+    },
+    {
+      id: "react-usedeferredvalue",
+      title: "React - useDeferredValue",
+      href: "https://react.dev/reference/react/useDeferredValue",
+      description: "값 업데이트를 미뤄 이전 결과를 유지하는 동작과 백그라운드 렌더의 중단 가능성",
+    },
+    {
+      id: "react-suspense",
+      title: "React - Suspense",
+      href: "https://react.dev/reference/react/Suspense",
+      description: "transition과 결합해 원치 않는 fallback 깜빡임을 막는 방식",
+    },
+    {
+      id: "rfc-usesyncexternalstore",
+      title: "React RFC 0214 - useSyncExternalStore",
+      href: "https://github.com/reactjs/rfcs/blob/main/text/0214-use-sync-external-store.md",
+      description: "동시성 렌더링이 만드는 tearing 문제와 일관된 store 읽기의 필요성",
+    },
+  ]}
+/>
