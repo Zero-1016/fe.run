@@ -9,6 +9,10 @@ import { ServiceWorkerRegister } from "@/components/layout/service-worker-regist
 import { AppToaster } from "@/components/layout/app-toaster";
 import { Analytics } from "@vercel/analytics/next";
 
+const OG_IMAGE = `/og?title=${encodeURIComponent(siteConfig.name)}&description=${encodeURIComponent(
+  siteConfig.shortDescription
+)}`;
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
@@ -33,11 +37,13 @@ export const metadata: Metadata = {
     siteName: siteConfig.name,
     title: siteConfig.name,
     description: siteConfig.description,
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: siteConfig.name }],
   },
   twitter: {
     card: "summary_large_image",
     title: siteConfig.name,
     description: siteConfig.description,
+    images: [OG_IMAGE],
   },
   robots: {
     index: true,
