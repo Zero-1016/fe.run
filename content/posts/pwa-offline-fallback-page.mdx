@@ -1,0 +1,180 @@
+---
+title: "오프라인 화면을 직접 만드는 법"
+description: "오프라인이면 왜 공룡이 뜨고, 어떻게 내 화면으로 바꾸는지 정리했어요."
+date: 2026-06-07
+tags: ["PWA", "Service Worker", "브라우저", "캐시", "오프라인"]
+published: true
+---
+
+비행기 모드를 켜고 새로고침하면 화면에 공룡이 한 마리 떠요. 스페이스바를 누르면 선인장을 뛰어넘는 그 게임이요. 처음엔 내 사이트가 죽은 줄 알았는데, 이건 브라우저가 네트워크가 끊겼을 때 띄우는 기본 에러 화면이에요. Service Worker 로 그 요청을 가로채 미리 캐시해 둔 페이지를 돌려주면 공룡 자리에 내 오프라인 화면이 들어오는데, 그게 PWA, 그러니까 브라우저에 설치되는 웹 앱이 오프라인에서 하는 일이에요.
+
+## 공룡은 왜 뜨고, PWA 는 뭘 바꾸나
+
+네트워크가 끊긴 상태로 페이지를 열면 크롬은 `net::ERR_INTERNET_DISCONNECTED` 라는 에러를 만나요. 이때 보여주는 게 그 공룡 화면이고, `about://dino` 로 직접 열어볼 수도 있어요. 이스터에그라 귀엽긴 한데, 사용자 입장에선 "이 서비스 고장 났나" 싶은 순간이거든요.<Cite id="chrome-default-offline" />
+
+여기서 [PWA](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps)(Progressive Web App) 가 들어와요. 웹 기술로 만든 사이트인데, 기기에 설치되고 오프라인에서도 켜지는 앱이에요.<Cite id="mdn-pwa" />
+
+<Callout variant="info">
+"A progressive web app (PWA) is an app that's built using web platform technologies, but that provides a user experience like that of a platform-specific app." - MDN
+
+웹 기술로 만들었는데 네이티브 앱처럼 쓰인다는 뜻이에요. 설치되고, 오프라인에서도 켜지고, OS 와 자연스럽게 섞여요.
+
+</Callout>
+
+공룡을 내 페이지로 바꾸는 일도 결국 이 오프라인 능력의 한 조각이에요. 그 능력은 세 가지가 맞물려서 나와요.
+
+## PWA 를 떠받치는 세 가지
+
+첫째는 [web app manifest](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest) 예요. 앱 이름, 아이콘, 시작 주소 같은 설치 정보를 담은 JSON 파일이고, 브라우저는 이걸 보고 "이 사이트를 앱으로 설치할 수 있겠다" 고 판단해요.<Cite id="mdn-manifest" /> HTML 의 `<head>` 에 한 줄로 연결해요.
+
+```html
+<link rel="manifest" href="/manifest.json" />
+```
+
+```json
+{
+  "name": "오프라인 데모",
+  "short_name": "데모",
+  "start_url": "/",
+  "display": "standalone",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
+```
+
+둘째는 Service Worker 예요. 페이지와 네트워크 사이에 끼어 앉아 요청을 가로채는 프록시 같은 워커인데, 이 자리 덕분에 네트워크가 없을 때도 응답을 직접 만들어 줄 수 있어요. 왜 이게 Web Worker 와 다른 자리에 사는지는 [Service Worker 는 네트워크 프록시예요](/posts/service-worker-network-proxy) 에서 따로 풀어뒀어요.
+
+셋째는 HTTPS 예요. 서비스 워커는 보안 컨텍스트에서만 동작하거든요.
+
+<Callout variant="warning">
+"Service workers are only available in secure contexts: this means that their document is served over HTTPS." - MDN
+
+그래서 `localhost` 가 아니면 http 로 띄운 사이트에선 서비스 워커가 아예 등록이 안 돼요. 중간에서 코드가 바꿔치기될 수 있는 통로라 브라우저가 막아둔 거예요.
+
+</Callout>
+
+설치 가능한 PWA 가 되려면 이 셋이 최소 조건을 채워야 해요. manifest 에 `name`, `192px` 와 `512px` 아이콘, `start_url`, `display` 가 있어야 하고, 사이트가 https 또는 로컬의 `localhost` 로 제공돼야 해요.<Cite id="mdn-installable" /> 서비스 워커 자체는 설치의 필수 조건은 아니지만, 오프라인 경험을 주려면 결국 필요해요.
+
+## 오프라인 페이지를 미리 캐시에 넣기
+
+오프라인 화면의 함정은 타이밍이에요. 네트워크가 끊긴 다음에는 `offline.html` 조차 받아올 수 없거든요. 그래서 인터넷이 살아있을 때, 그러니까 서비스 워커가 처음 설치되는 `install` 이벤트에서 미리 캐시에 넣어둬야 해요.
+
+`install` 단계에서 `caches.open` 으로 캐시 저장소를 열고, `cache.add` 로 오프라인 페이지를 담아요. 이때 `event.waitUntil` 로 감싸면 캐싱이 끝날 때까지 설치를 기다려 줘서, 캐싱이 절반만 된 채로 워커가 활성화되는 사고를 막아요.<Cite id="mdn-service-worker-api" />
+
+```js
+// sw.js
+const OFFLINE_URL = "/offline.html";
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    caches.open("offline-v1").then((cache) => cache.add(OFFLINE_URL))
+  );
+});
+```
+
+페이지 쪽에서는 이 `sw.js` 를 등록만 해주면 돼요.
+
+```js
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js");
+}
+```
+
+## 네트워크가 끊기면 캐시로 돌려주기
+
+이제 진짜 공룡을 밀어낼 차례예요. 서비스 워커는 페이지가 보내는 모든 요청을 `fetch` 이벤트로 받아요. 여기서 `event.respondWith` 를 부르면 브라우저의 기본 처리를 막고, 내가 만든 응답을 대신 돌려줄 수 있어요.<Cite id="mdn-respondwith" /> 공룡 화면을 갈아끼울 수 있는 이유가 바로 이 메서드예요.
+
+```js
+// sw.js
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode !== "navigate") return;
+
+  event.respondWith(
+    fetch(event.request).catch(() => caches.match(OFFLINE_URL))
+  );
+});
+```
+
+흐름을 따라가 보면 단순해요. 먼저 원래 요청을 네트워크로 그대로 보내요. 온라인이면 실제 페이지가 내려오고, 끊겨 있으면 `fetch` 가 실패하면서 `catch` 로 빠져요. 그 자리에서 미리 캐시해 둔 `offline.html` 을 꺼내 돌려주는 거예요.<Cite id="webdev-offline-fallback" />
+
+<FlowDiagram
+  height={420}
+  caption="navigate 요청이 네트워크에서 실패하면 catch 가 캐시된 offline.html 로 갈아끼워요"
+  nodes={[
+    { id: "nav", title: "Navigate 요청", description: "주소창 이동, 새로고침", x: 60, y: 0 },
+    { id: "sw", title: "Service Worker", description: "fetch 이벤트로 가로채기", x: 60, y: 110, kind: "accent" },
+    { id: "net", title: "네트워크 fetch", description: "원래 요청 그대로 시도", x: 60, y: 220 },
+    { id: "page", title: "실제 페이지", description: "온라인이면 이쪽", x: -90, y: 330 },
+    { id: "offline", title: "offline.html", description: "캐시에서 꺼낸 화면", x: 210, y: 330, kind: "accent" }
+  ]}
+  edges={[
+    { from: "nav", to: "sw" },
+    { from: "sw", to: "net", label: "respondWith" },
+    { from: "net", to: "page", label: "성공" },
+    { from: "net", to: "offline", label: "실패 시 catch", animated: true }
+  ]}
+/>
+
+여기서 `event.request.mode !== "navigate"` 로 페이지 이동 요청만 거른 게 포인트예요. 이미지나 API 요청까지 전부 오프라인 페이지로 돌려주면 엉뚱한 곳에 HTML 이 끼어드니까, 주소창을 움직이는 화면 전환에만 fallback 을 걸어요.
+
+전략 하나만 짚고 갈게요. 위 코드는 네트워크를 먼저 시도하고 실패하면 캐시로 가는 network-first 예요. 반대로 캐시를 먼저 보고 없을 때만 네트워크로 가는 cache-first 도 있어요. 오프라인 fallback 처럼 "평소엔 최신, 끊기면 비상용" 이 목적이면 network-first 가 자연스럽고, 폰트나 로고처럼 잘 안 바뀌는 자산은 cache-first 가 빨라요. 같은 fallback 인데 캐시와 네트워크 중 누구를 먼저 믿느냐가 갈리는 자리예요.
+
+## 공룡을 내 페이지로 바꾸는 한 줄 정리
+
+정리하면 네 박자예요. manifest 로 설치 정보를 주고, `sw.js` 를 등록하고, `install` 에서 `offline.html` 을 미리 캐시하고, `fetch` 에서 네트워크가 실패하면 `respondWith` 로 그 캐시를 돌려줘요. 이 네 개가 맞물리는 순간 공룡 대신 내가 디자인한 오프라인 화면이 떠요.
+
+캐시 전략을 더 파고들면 응답 헤더의 `stale-while-revalidate` 와 서비스 워커의 SWR 패턴이 헷갈리기 시작하는데, 그 둘이 일하는 자리는 [두 stale-while-revalidate 의 자리](/posts/stale-while-revalidate-two-layers) 에서 나눠뒀어요.
+
+<FAQ items={[
+  { question: "서비스 워커만 등록하면 PWA 인가요?", answer: "오프라인 동작은 서비스 워커로 되지만, 기기에 설치까지 되려면 web app manifest 와 https 가 함께 있어야 해요. 셋이 모이면 브라우저가 설치 가능한 PWA 로 인식해요." },
+  { question: "오프라인 페이지에 이미지나 CSS 도 보이게 하려면요?", answer: "offline.html 만 캐시하면 글자만 떠요. install 단계의 cache.add 자리에 그 페이지가 쓰는 이미지와 CSS 경로도 함께 넣어 미리 캐시하면 오프라인에서도 같이 떠요." }
+]} />
+
+<References
+  items={[
+    {
+      id: "mdn-pwa",
+      title: "MDN - Progressive web apps (PWA)",
+      href: "https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps",
+      description: "PWA 정의와 manifest, 서비스 워커, HTTPS 구성요소",
+    },
+    {
+      id: "mdn-manifest",
+      title: "MDN - Web app manifest",
+      href: "https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest",
+      description: "설치 정보를 담는 manifest 의 역할과 주요 멤버",
+    },
+    {
+      id: "mdn-service-worker-api",
+      title: "MDN - Service Worker API",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API",
+      description: "install 단계의 사전 캐싱과 waitUntil 동작",
+    },
+    {
+      id: "mdn-respondwith",
+      title: "MDN - FetchEvent.respondWith()",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/FetchEvent/respondWith",
+      description: "브라우저 기본 fetch 처리를 막고 응답을 직접 돌려주는 메서드",
+    },
+    {
+      id: "mdn-installable",
+      title: "MDN - Making PWAs installable",
+      href: "https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable",
+      description: "설치 가능 조건인 manifest 필수 멤버와 HTTPS 요건",
+    },
+    {
+      id: "webdev-offline-fallback",
+      title: "web.dev - Create an offline fallback page",
+      href: "https://web.dev/articles/offline-fallback-page",
+      description: "network-first 로 실패 시 오프라인 페이지를 돌려주는 패턴",
+    },
+    {
+      id: "chrome-default-offline",
+      title: "Chrome for Developers - Basic offline page",
+      href: "https://developer.chrome.com/blog/default-offline",
+      description: "네트워크 끊김 시 뜨는 기본 오프라인 화면과 다이노 게임",
+    },
+  ]}
+/>
