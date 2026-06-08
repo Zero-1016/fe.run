@@ -438,11 +438,16 @@
               }
               if (url.origin !== origin) continue;
               if (!isContentPath(url.pathname)) continue;
+              // RSC 페이로드(?_rsc=...) 등 쿼리가 붙은 항목은 주소로 직접 열 수 있는
+              // 문서가 아니므로 목록에서 제외한다.
+              if (url.search) continue;
               if (seen[url.pathname]) continue;
-              seen[url.pathname] = true;
               try {
                 var res = await cache.match(req);
                 if (!res) continue;
+                var ct = res.headers.get("content-type") || "";
+                if (ct.indexOf("text/html") === -1) continue;
+                seen[url.pathname] = true;
                 var text = await res.clone().text();
                 var title = extractTitle(text) || url.pathname;
                 var description = extractDescription(text);

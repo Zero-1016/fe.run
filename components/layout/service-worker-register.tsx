@@ -1,13 +1,22 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import toast from "react-hot-toast";
 
 const OFFLINE_TOAST_SHOWN_SESSION_KEY = "offline-toast-shown";
 const NEXT_STATIC_WARMED_SESSION_KEY = "sw-next-static-warmed";
 const WARM_CACHE_DELAY_MS = 900;
+const WARM_DOCUMENT_DELAY_MS = 1200;
 const OFFLINE_TOAST_DURATION_MS = 5000;
 const OFFLINE_TOAST_ID = "offline-status";
+
+// offline.html 의 저장된-페이지 목록과 동일한 콘텐츠 경로 기준.
+const CONTENT_PATH_PREFIXES = ["/posts/", "/tags/", "/series/"];
+
+function isContentPath(pathname: string): boolean {
+  return CONTENT_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
 
 function collectNextStaticCssUrls(): string[] {
   const urls = new Set<string>();
@@ -27,6 +36,7 @@ function collectNextStaticCssUrls(): string[] {
 
 export function ServiceWorkerRegister() {
   const hasShownToastRef = useRef(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
@@ -64,6 +74,39 @@ export function ServiceWorkerRegister() {
 
     return () => window.clearTimeout(id);
   }, []);
+
+  // 방문한 콘텐츠 글의 "순수 HTML 문서"를 캐시에 채운다.
+  // App Router 클라이언트 네비게이션은 RSC 페이로드(?_rsc)만 받아오므로,
+  // 그것만으로는 오프라인에서 주소로 직접 여는 문서 네비게이션이 매칭되지 않는다.
+  // 온라인에서 한 번 연 글은 그 문서 HTML + 정적 번들을 함께 저장해 둔다.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    if (!("caches" in window)) return;
+    if (!pathname || !isContentPath(pathname)) return;
+
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      void (async () => {
+        if (cancelled) return;
+        if (!navigator.onLine) return;
+        const controller = navigator.serviceWorker.controller;
+        if (!controller) return;
+        try {
+          // 이미 순수 HTML 문서가 저장돼 있으면 다시 받지 않는다.
+          const already = await caches.match(pathname);
+          if (already) return;
+          controller.postMessage({ type: "PRECACHE_DOCUMENTS", urls: [pathname] });
+        } catch {
+          // ignore
+        }
+      })();
+    }, WARM_DOCUMENT_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     const showOfflineToastOnce = () => {
