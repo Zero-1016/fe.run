@@ -1,0 +1,240 @@
+---
+title: "에러 바운더리가 쿼리를 못 잡을 때"
+description: "Error Boundary 를 달았는데 쿼리 에러가 안 잡히던 그 순간을 풀어요."
+date: 2026-06-08
+tags: ["React", "TanStack Query", "에러 처리", "Suspense"]
+published: true
+---
+
+`<ErrorBoundary>` 로 컴포넌트를 감쌌는데 fetch 가 실패해도 fallback 화면이 안 뜬 적 있죠. 저도 처음엔 바운더리가 고장 난 줄 알았어요. [TanStack Query](https://tanstack.com/query) 의 에러는 기본적으로 `isError` 상태로만 남거든요. 그래서 `throwOnError` 로 에러를 렌더 단계에 다시 던져야 [React](https://react.dev) 의 Error Boundary 가 잡고, `QueryErrorResetBoundary` 의 `reset` 을 `onReset` 에 묶어야 재시도까지 이어져요.
+
+## Error Boundary 가 못 잡는 자리
+
+Error Boundary 는 자식 컴포넌트가 렌더되는 도중 던진 에러를 잡아서 fallback UI 로 바꿔주는 장치예요. React 공식 문서가 정해둔 범위가 꽤 좁아요. 렌더 바깥에서 나는 에러는 못 잡거든요.
+
+<Callout variant="warning">
+"Error boundaries do not catch errors for event handlers, asynchronous code, server side rendering, errors thrown in the error boundary itself." - React
+
+이벤트 핸들러 안에서 난 에러, `setTimeout` 같은 비동기 콜백에서 난 에러는 바운더리 바깥이에요. 데이터 페칭은 본질적으로 비동기라서, 응답이 실패해도 그 에러는 렌더 흐름을 타고 올라오지 않아요.
+
+</Callout>
+
+여기서 첫 번째 오해가 생겨요. TanStack Query 로 데이터를 받을 때 `queryFn` 이 reject 하면, 라이브러리는 그 에러를 삼켜서 `error` 라는 상태값으로 바꿔둬요.<Cite id="react-component" /> 컴포넌트는 멀쩡히 렌더되고, `isError` 가 `true` 인 채로 돌아가죠. 던져진 에러가 없으니 위에 있는 Error Boundary 는 아무 일도 없었던 것처럼 가만히 있어요. 바운더리가 고장 난 게 아니라, 애초에 잡을 에러가 안 올라온 거예요.
+
+그래서 함수 컴포넌트로는 Error Boundary 를 못 만든다는 점도 같이 알아두면 좋아요. `getDerivedStateFromError` 가 필요해서 클래스로 써야 하거든요. React 팀은 직접 클래스를 쓰는 대신 [react-error-boundary](https://github.com/bvaughn/react-error-boundary) 패키지를 권합니다. 아래 예시도 이 패키지를 기준으로 할게요.
+
+## throwOnError 로 에러를 렌더 단계로 올리기
+
+쿼리 에러를 바운더리가 잡게 하려면, 삼켜둔 에러를 렌더 단계에서 다시 던지라고 알려줘야 해요. 그 스위치가 `throwOnError` 예요. 예전 버전에서 `useErrorBoundary` 라고 부르던 옵션인데, v5 에서 이름이 바뀌었어요.
+
+```jsx
+import { useQuery } from "@tanstack/react-query";
+
+function Profile() {
+  const { data } = useQuery({
+    queryKey: ["profile"],
+    queryFn: fetchProfile,
+    throwOnError: true,
+  });
+
+  return <h1>{data.name}</h1>;
+}
+```
+
+`throwOnError: true` 로 두면 쿼리가 실패할 때 그 에러가 render phase 에서 throw 돼요.<Cite id="tanstack-throw-on-error" /> 렌더 도중 던진 에러니까, 이제 가장 가까운 Error Boundary 가 정상적으로 잡아요. `isError` 분기를 컴포넌트마다 손으로 쓰는 대신, 에러 처리를 한 군데 바운더리로 모으는 거죠.
+
+`throwOnError` 에는 함수도 줄 수 있어요. `(error) => error.response?.status >= 500` 처럼 두면 서버 에러만 바운더리로 올리고, 400 대 같은 건 컴포넌트 안에서 직접 다루게 갈라낼 수 있고요.
+
+## Suspense 모드의 조용한 함정
+
+`useSuspenseQuery` 를 쓰면 `throwOnError` 를 켜지 않아도 에러가 자동으로 던져져요. 로딩은 Suspense 가, 에러는 Error Boundary 가 맡는 구조라서요. 이 갈라짐이 어떻게 돌아가는지는 [Suspense 안쪽과 useSuspenseQuery](/posts/react-suspense-internals-and-tanstack-query) 에서 따로 풀어뒀어요.
+
+근데 여기에 놓치기 쉬운 단서가 하나 있어요. suspense 모드는 에러를 항상 던지는 게 아니에요.
+
+<Callout variant="warning">
+"Not all errors are thrown to the nearest Error Boundary per default, we're only throwing errors if there is no other data to show." - TanStack Query
+
+보여줄 데이터가 하나도 없을 때만 에러를 던진다는 뜻이에요. 한 번이라도 성공해서 캐시에 값이 남아 있으면, 재요청이 실패해도 에러를 안 올리고 그 stale 데이터를 그대로 화면에 둬요.
+
+</Callout>
+
+이게 "바운더리를 분명히 달았는데 왜 에러 화면이 안 뜨지" 의 진짜 범인일 때가 많아요.<Cite id="tanstack-suspense" /> 처음 마운트될 때는 캐시가 비어 있으니 에러가 정상적으로 올라가요. 근데 사용자가 한 번 데이터를 본 뒤 다시 들어와서 실패하면, 라이브러리는 빈 화면을 보여주느니 옛날 데이터라도 보여주는 쪽을 골라요. 의도된 동작이지만, 모르고 보면 바운더리가 새는 것처럼 느껴지죠.
+
+## QueryErrorResetBoundary 로 재시도까지 잇기
+
+에러를 바운더리로 올렸으면, 이제 "다시 시도" 버튼을 눌렀을 때 쿼리가 재실행되게 묶어야 해요. 여기서 두 개의 reset 이 만나요. react-error-boundary 의 `resetErrorBoundary` 는 바운더리의 에러 상태를 비우고 렌더를 다시 시도해요. TanStack 의 `reset` 은 쿼리에게 "이제 다시 시도해도 된다" 고 알리는 신호고요. 둘을 안 묶으면, 화면은 멀쩡한 컴포넌트로 돌아가지만 쿼리는 여전히 에러 상태라 또 바로 fallback 으로 떨어져요.
+
+`QueryErrorResetBoundary` 가 그 둘을 잇는 자리예요. render prop 으로 `reset` 함수를 내려주는데, 이걸 바운더리의 `onReset` 에 연결하면 돼요.
+
+```jsx
+import { QueryErrorResetBoundary } from "@tanstack/react-query";
+import { ErrorBoundary } from "react-error-boundary";
+
+function Page() {
+  return (
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary
+          onReset={reset}
+          fallbackRender={({ resetErrorBoundary }) => (
+            <div>
+              <p>데이터를 못 불러왔어요.</p>
+              <button onClick={() => resetErrorBoundary()}>다시 시도</button>
+            </div>
+          )}
+        >
+          <Profile />
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
+  );
+}
+```
+
+버튼을 누르면 일이 줄줄이 일어나요. 그 인과 사슬을 그림으로 보면 이래요.
+
+<FlowDiagram
+  height={500}
+  caption="다시 시도 버튼 한 번이 만드는 reset 인과 사슬"
+  nodes={[
+    { id: "click", title: "resetErrorBoundary()", description: "fallback 의 버튼을 누름", x: 0, y: 0, kind: "accent" },
+    { id: "onreset", title: "onReset 실행", description: "바운더리가 리셋을 알림", x: 0, y: 100 },
+    { id: "reset", title: "TanStack reset()", description: "쿼리 에러 상태를 초기화", x: 0, y: 200 },
+    { id: "rerender", title: "렌더 재시도", description: "React 가 실패한 렌더를 다시 그림", x: 0, y: 300 },
+    { id: "refetch", title: "쿼리 재실행", description: "queryFn 이 다시 호출됨", x: 0, y: 400, kind: "accent" }
+  ]}
+  edges={[
+    { from: "click", to: "onreset", label: "트리거", animated: true },
+    { from: "onreset", to: "reset", animated: true },
+    { from: "reset", to: "rerender", animated: true },
+    { from: "rerender", to: "refetch", animated: true }
+  ]}
+/>
+
+`resetErrorBoundary` 호출이 `onReset` 을 트리거하고, 거기 묶인 `reset` 이 쿼리 에러를 비워요.<Cite id="react-error-boundary" /> 그 뒤 React 가 실패했던 렌더를 다시 그리고, 이번엔 쿼리가 새로 실행돼요. 컴포넌트 대신 `useQueryErrorResetBoundary` 훅을 써도 같은 일을 해요. `const { reset } = useQueryErrorResetBoundary()` 로 꺼내서 똑같이 `onReset` 에 꽂으면 되거든요. 컴포넌트 버전이 부담스럽고 한 군데서만 reset 이 필요하면 훅 쪽이 가벼워요.
+
+말로만 보면 헷갈리니까, 이 흐름을 바닐라 React 로 줄여서 직접 눌러볼 수 있게 해뒀어요. 처음엔 렌더에서 에러를 던지고, 다시 시도를 누르면 바운더리가 에러를 비우고 다시 그려서 성공해요. 실제 `QueryErrorResetBoundary` 가 하는 일과 같은 모양이에요.
+
+<CodePlayground
+  code={`function App() {
+    const [attempt, setAttempt] = React.useState(0);
+
+    return (
+      <ErrorBoundary
+        onReset={() => setAttempt((n) => n + 1)}
+        fallback={(retry) => (
+          <div className="panel panel--error">
+            <p>데이터를 못 불러왔어요.</p>
+            <button onClick={retry}>다시 시도</button>
+          </div>
+        )}
+      >
+        <FlakyData attempt={attempt} />
+      </ErrorBoundary>
+    );
+  }
+
+  function FlakyData({ attempt }) {
+    if (attempt === 0) {
+      throw new Error("불러오기 실패");
+    }
+    return (
+      <div className="panel panel--ok">
+        <p>데이터를 불러왔어요. 재시도 {attempt}번 만에 성공했어요.</p>
+      </div>
+    );
+  }
+
+  class ErrorBoundary extends React.Component {
+    constructor(props) {
+      super(props);
+      this.state = { error: null };
+      this.handleRetry = this.handleRetry.bind(this);
+    }
+
+    static getDerivedStateFromError(error) {
+      return { error };
+    }
+
+    handleRetry() {
+      this.setState({ error: null });
+      this.props.onReset();
+    }
+
+    render() {
+      if (this.state.error) {
+        return this.props.fallback(this.handleRetry);
+      }
+      return this.props.children;
+    }
+  }`}
+  css={`.panel {
+    padding: 16px 20px;
+    border-radius: 10px;
+    font-size: 15px;
+  }
+
+  .panel--error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+  }
+
+  .panel--ok {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+  }
+
+  button {
+    margin-top: 8px;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    background: #2563eb;
+    color: white;
+    cursor: pointer;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+`getDerivedStateFromError` 가 에러를 잡아 fallback 으로 바꾸고, 다시 시도가 그 에러를 비우면서 부모의 상태를 한 칸 올려요. 다음 렌더에서 `FlakyData` 가 성공하는 게 곧 쿼리 재실행에 해당하고요.
+
+## 그래서 어디에
+
+쿼리 에러가 Error Boundary 로 안 올라오는 건 바운더리 잘못이 아니라, 에러가 상태로 삼켜져서예요. `throwOnError` 로 다시 던지고, suspense 모드라면 캐시에 데이터가 남아 있을 때 에러가 조용히 묻힌다는 걸 기억하고, 재시도가 필요하면 `QueryErrorResetBoundary` 의 `reset` 을 `onReset` 에 묶으면 돼요. 여러 쿼리를 한 화면에 펼칠 때 실패를 어떻게 가를지는 [병렬인 줄 알았던 세 줄의 쿼리](/posts/usequeries-suspense-fan-out) 에서 이어서 볼 수 있어요.
+
+<FAQ items={[
+  { question: "throwOnError 와 suspense 모드 중 뭘 써야 하나요?", answer: "로딩 상태도 바운더리 단위로 모으고 싶으면 useSuspenseQuery 가 자연스럽고, 기존 useQuery 코드에 에러 처리만 얹고 싶으면 throwOnError 옵션이 가벼워요. 둘 다 에러는 Error Boundary 로 올라가요." },
+  { question: "QueryErrorResetBoundary 컴포넌트와 훅 중 어느 걸 쓰나요?", answer: "둘 다 같은 일을 해요. JSX 안에서 reset 을 한 번만 쓰면 컴포넌트가 깔끔하고, 여러 곳에서 reset 을 참조하거나 로직과 섞어야 하면 useQueryErrorResetBoundary 훅이 편해요." }
+]} />
+
+<References
+  items={[
+    {
+      id: "tanstack-suspense",
+      title: "TanStack Query - Suspense",
+      href: "https://tanstack.com/query/latest/docs/framework/react/guides/suspense",
+      description: "suspense 모드가 데이터가 없을 때만 에러를 던지는 동작과 QueryErrorResetBoundary 연동 패턴",
+    },
+    {
+      id: "tanstack-throw-on-error",
+      title: "TanStack Query - useQuery throwOnError",
+      href: "https://tanstack.com/query/latest/docs/framework/react/reference/useQuery",
+      description: "throwOnError 가 render phase 에서 에러를 던져 Error Boundary 로 전파하는 옵션 정의",
+    },
+    {
+      id: "react-component",
+      title: "React - Component (Error Boundary)",
+      href: "https://react.dev/reference/react/Component",
+      description: "getDerivedStateFromError 기반 Error Boundary 가 못 잡는 에러 범위",
+    },
+    {
+      id: "react-error-boundary",
+      title: "react-error-boundary",
+      href: "https://github.com/bvaughn/react-error-boundary",
+      description: "onReset 과 resetErrorBoundary 로 실패한 렌더를 다시 시도하는 흐름",
+    },
+  ]}
+/>
