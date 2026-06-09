@@ -1,0 +1,165 @@
+---
+title: "프론트엔드를 위한 OAuth 2.0"
+description: "브라우저 앱엔 숨길 시크릿이 없어서, 비밀번호 대신 권한만 빌려주는 OAuth 를 풀어요"
+date: 2026-06-09
+tags: ["OAuth", "인증", "보안", "프론트엔드", "네트워크"]
+banner: auth
+published: true
+---
+
+구글이나 깃허브 계정으로 로그인하는 버튼을 눌러본 적 있을 거예요. 누르는 순간 화면이 한두 번 깜빡이면서 낯선 주소로 갔다가, 권한을 묻는 화면이 떴다가, 다시 원래 서비스로 돌아오죠. 매일 쓰면서도 그 사이에 뭐가 오가는지는 의외로 흐릿해요. OAuth 2.0 은 내 비밀번호를 남의 서비스에 넘기지 않고 권한만 빌려주려고 역할을 네 개로 쪼갠 구조인데, 브라우저에서 도는 앱에는 숨길 시크릿이 없어서 PKCE 라는 장치가 사실상 기본이 됐어요.
+
+<Callout variant="info">
+참고로 우리가 흔히 말하는 '구글 로그인' 은 OAuth 위에 OpenID Connect(OIDC) 를 얹어 사용자가 누구인지까지 확인하는 방식인 경우가 대부분이에요. OAuth 자체는 권한을 위임하는 일을 다루고, 로그인 즉 사용자 인증은 그 위에서 OIDC 가 맡아요. 이 글은 둘의 토대가 되는 OAuth 쪽에 집중할게요.
+
+</Callout>
+
+## 비밀번호를 넘기지 않으려고 역할을 쪼갰다
+
+비유로 시작할게요. 사진 인화 서비스에 구글 포토 속 사진을 맡겨 출력하고 싶다고 해봐요. 인화 서비스가 사진을 가져가려면 내 구글 계정에 접근해야 하는데, 그렇다고 구글 비밀번호를 그 서비스에 그대로 넘기긴 싫어요. 비밀번호를 주면 사진뿐 아니라 메일이고 캘린더고 전부 열리니까요. 게다가 나중에 인화 서비스만 끊고 싶어도 방법이 없죠. OAuth 2.0 은 바로 이 어색함을 풀어요.
+
+OAuth 2.0 의 규칙을 글로 못 박아둔 공식 표준 문서가 [RFC 6749](https://datatracker.ietf.org/doc/html/rfc6749) 예요. 인터넷 표준을 정하는 IETF 라는 단체가 펴낸 명세인데, 여기서 이 상황에 등장하는 주체를 네 개로 갈라놔요.<Cite id="rfc-6749" /> 사진의 주인인 나는 resource owner 예요. 사진을 대신 가져가려는 인화 서비스가 client 고요. 사진을 실제로 보관한 구글 포토가 resource server 죠. 그리고 로그인을 받아서 "이 접근을 허락한다"는 증표를 발급해주는 구글 계정 서버가 authorization server 예요. 역할을 이렇게 떼어놓으면, 인화 서비스는 비밀번호 대신 "사진만 읽어도 된다"는 제한된 증표 하나만 손에 쥐게 돼요.
+
+<Callout variant="info">
+"OAuth addresses these issues by introducing an authorization layer and separating the role of the client from that of the resource owner." - RFC 6749
+
+비밀번호를 직접 건네는 대신, 권한을 다루는 층을 하나 끼워 넣고 부탁하는 쪽(client)과 주인(resource owner)을 떼어놓은 거예요. 이 분리가 OAuth 의 출발점이에요.
+
+</Callout>
+
+## 코드를 한 번 받고, 토큰으로 바꾼다
+
+흐름을 보기 전에 짚어둘 게 하나 있어요. 인화 서비스는 작업을 시작하기 전에 구글에 미리 자기를 등록해둬요. 그 대가로 `client_id` 와 `client_secret`, 그리고 "승인이 끝나면 사용자를 여기로 돌려보내라"고 약속한 `redirect_uri` 를 받아두죠. 이 등록 단계가 있어야 뒤에 나오는 값들이 어디서 왔는지가 자연스러워져요.
+
+가장 널리 쓰이는 Authorization Code 방식은 이렇게 흘러가요.
+
+<AnimatedStep
+  steps={[
+    {
+      title: "인가 서버로 리다이렉트",
+      content: "인화 서비스가 사용자를 구글 로그인 화면으로 보내요. 이때 client_id, redirect_uri, scope, state 를 주소 쿼리에 실어요."
+    },
+    {
+      title: "사용자가 로그인하고 승인",
+      content: "사용자는 구글에 직접 로그인하고 '이 사진들에 접근해도 좋다'고 승인해요. 비밀번호는 구글에만 들어가고 인화 서비스는 끝까지 못 봐요."
+    },
+    {
+      title: "authorization code 를 들고 복귀",
+      content: "구글이 미리 등록된 redirect_uri 로 사용자를 돌려보내면서 수명이 짧은 authorization code 한 장을 붙여줘요."
+    },
+    {
+      title: "code 를 토큰으로 교환",
+      content: "인화 서비스가 그 code 를 구글의 토큰 엔드포인트로 보내 access token 으로 바꿔요. 이 교환은 주소창이 아니라 서버끼리 직접 주고받아요."
+    },
+    {
+      title: "access token 으로 사진 요청",
+      content: "이제 인화 서비스는 access token 을 들고 구글 포토에 사진을 요청해요. 비밀번호 없이, 승인한 범위만큼만요."
+    }
+  ]}
+/>
+
+코드를 한 번 받고 그걸 다시 토큰으로 바꾸는 게 빙 돌아가는 것처럼 보이죠. 근데 이 한 단계가 중요해요. 사용자가 거쳐가는 주소창에는 짧은 수명의 code 만 잠깐 노출되고, 진짜 열쇠인 access token 은 서버 간 통신에서만 오가거든요.<Cite id="rfc-6749" /> 브라우저 히스토리나 referer 헤더에 토큰이 새는 걸 막는 구조예요.
+
+받은 토큰도 두 종류예요. access token 은 실제 자원을 요청할 때 들고 가는 증표인데 수명이 짧아요. 그게 만료되면 매번 다시 로그인하긴 번거로우니, refresh token 으로 새 access token 을 조용히 받아와요. 한 가지만 기억하면 돼요. refresh token 은 자원 서버가 아니라 오직 authorization server 한테만 보내요. 사진을 달라고 할 때 들고 가는 건 언제나 access token 이에요.
+
+## SPA 에는 숨길 시크릿이 없다
+
+여기까지는 인화 서비스에 백엔드가 있다고 가정한 그림이에요. `client_secret` 을 서버 깊숙이 숨겨둘 수 있으니까요. 근데 React 로 만든 SPA(브라우저에서 통째로 도는 단일 페이지 앱)처럼 백엔드 없이 브라우저에서만 도는 앱은 사정이 달라요. 번들에 시크릿을 넣는 순간 개발자 도구만 열면 누구나 볼 수 있거든요. 이렇게 비밀을 못 숨기는 앱을 public client 라고 불러요.
+
+비밀이 없으니 새로운 빈틈이 생겨요. 누가 중간에서 authorization code 를 가로채면, 그대로 토큰 엔드포인트에 들이밀어 access token 으로 바꿔버릴 수 있어요. 저도 처음엔 "code 는 어차피 한 번 쓰면 끝인데 가로채봤자 뭐 하겠어" 싶었는데, 교환되기 전 그 짧은 순간이 문제였어요.
+
+<Callout variant="warning">
+"OAuth 2.0 public clients utilizing the Authorization Code Grant are susceptible to the authorization code interception attack." - RFC 7636
+
+시크릿을 못 숨기는 앱은 code 를 가로채는 공격에 그대로 노출돼요. code 만 손에 넣으면 공격자도 토큰으로 바꿀 수 있으니까요.
+
+</Callout>
+
+그래서 나온 게 [PKCE](https://datatracker.ietf.org/doc/html/rfc7636)(Proof Key for Code Exchange) 예요.<Cite id="rfc-7636" /> 발음은 "픽시"고요. 원리는 단순해요. 앱이 요청을 시작할 때 `code_verifier` 라는 랜덤 문자열을 하나 만들고, 그걸 해시한 `code_challenge` 만 인가 요청에 실어 보내요. 나중에 code 를 토큰으로 교환할 때 원본 `code_verifier` 를 같이 내밀면, 인가 서버가 다시 해시해서 처음 받은 challenge 와 맞는지 확인하죠. 가로챈 사람은 code 는 있어도 원본 verifier 가 없어서 교환에 실패해요.
+
+```js
+// code_verifier: 매 요청마다 새로 만드는 랜덤 문자열
+function createVerifier() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return base64url(bytes); // 43~128자 사이
+}
+
+// code_challenge: verifier 를 SHA-256 해시한 뒤 base64url 로 인코딩
+async function createChallenge(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return base64url(new Uint8Array(digest));
+}
+
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+```
+
+해시 방식은 평문 그대로 보내는 `plain` 과 SHA-256 을 쓰는 `S256` 두 가지가 있는데, 명세는 가능하면 무조건 `S256` 을 쓰라고 못 박아요. 가로챈 challenge 로는 원본 verifier 를 되돌릴 수 없어야 하니까요.
+
+한 가지 짚어둘 게 있어요. PKCE 는 시크릿을 못 숨기는 public client 의 빈틈을 메우려고 처음 나왔지만, 지금은 백엔드를 갖춘 confidential client 까지 포함해 모든 코드 흐름에 권장돼요. SPA 만의 보완책이 아니라는 거죠. 뒤에서 볼 OAuth 2.1 은 이걸 아예 의무로 못 박았고요.
+
+## 그래서 토큰을 어디에 둘까
+
+PKCE 로 교환까지 안전하게 마쳤다고 해도, 받은 토큰을 브라우저 어디에 둘지가 다음 고민이에요. 흔히 `localStorage` 에 넣는데, 여기가 진짜 함정이에요. 페이지에서 도는 모든 자바스크립트는 같은 권한을 가지거든요. 광고 스크립트든 끼워 넣은 서드파티 라이브러리든, XSS(크로스 사이트 스크립팅) 로 주입된 코드든, 전부 `localStorage` 를 읽을 수 있어요.
+
+<Callout variant="warning">
+"The malicious JavaScript code has the same privileges as the legitimate application code." - OAuth 2.0 for Browser-Based Apps
+
+악성 스크립트도 내 앱 코드와 똑같은 권한으로 돌아요. 그러니 자바스크립트가 읽을 수 있는 자리에 토큰을 두면, 한 줄만 새어 들어와도 통째로 털려요.
+
+</Callout>
+
+그래서 IETF 의 [브라우저 앱 보안 가이드](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps)는 토큰을 어디에 두느냐를 보안 요구 수준에 따라 몇 갈래로 나눠요.<Cite id="oauth-browser-bcp" /> 백엔드가 토큰을 통째로 쥐고 브라우저엔 쿠키만 내려주는 BFF(Backend for Frontend) 가 한쪽 끝이에요. 백엔드가 토큰을 받아 access token 만 프론트로 건네는 Token-Mediating Backend 가 그 중간이고, 반대쪽 끝은 브라우저가 PKCE 로 전부 처리하는 방식이죠. 셋 다 현장에서 쓰이는데, 보안 요구사항이 높을수록 BFF 쪽이 가장 권장되는 패턴 하나로 꼽혀요. BFF 는 작은 백엔드를 두고 그쪽이 시크릿을 숨길 수 있는 confidential client 로서 OAuth 를 전부 처리한 뒤, 브라우저에는 `HttpOnly` `Secure` 쿠키로만 세션을 내려주죠. `HttpOnly` 가 붙은 쿠키를 자바스크립트가 못 읽는 이유는 [지난 글](/posts/why-cookies-follow-every-request)에서 다뤘는데, 그 성질이 여기서 토큰을 악성 스크립트로부터 가리는 방패가 돼요.
+
+정리하면 브라우저 앱의 현재 권고는 분명해요. Authorization Code 방식에 PKCE 를 더해 쓰고, 토큰은 가능하면 백엔드 뒤에 숨기라는 거죠. 한때 토큰을 주소 fragment 로 바로 받던 Implicit 방식은 이제 권하지 않아요. 다음 버전인 [OAuth 2.1](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1) 초안은 이 흐름을 아예 규칙으로 굳혔어요. 모든 코드 흐름에 PKCE 를 의무로 못 박고, 빈틈이 많던 Implicit 방식은 통째로 들어냈죠. `redirect_uri` 도 등록된 값과 글자 하나까지 같아야 받아들이고요.<Cite id="oauth-2-1" /> 다만 OAuth 2.1 과 브라우저 앱 가이드는 아직 IETF 초안 단계라, 확정 표준이라기보다 지금의 best practice 가 모이는 방향으로 봐두는 게 정확해요.
+
+<FAQ
+  items={[
+    {
+      question: "PKCE 를 쓰면 state 파라미터는 필요 없나요?",
+      answer: "둘은 막는 공격이 달라요. PKCE 는 authorization code 가로채기를 막고, state 는 엉뚱한 요청이 내 세션에 끼어드는 CSRF 를 막아요. 역할이 겹치지 않으니 함께 쓰는 게 맞아요."
+    },
+    {
+      question: "refresh token 을 브라우저에 저장해도 되나요?",
+      answer: "브라우저 앱 가이드는 권하지 않아요. 가능하면 BFF 같은 백엔드에 두고, 브라우저만으로 가야 한다면 수명을 짧게 잡고 한 번 쓰면 교체되는 rotation 을 전제로 해요."
+    }
+  ]}
+/>
+
+소셜 로그인 버튼 하나에 담긴 리다이렉트의 정체는, 비밀번호를 넘기지 않으려고 역할을 쪼개고 code 를 토큰으로 바꾸는 과정이었어요. 그리고 브라우저에는 숨길 시크릿이 없다는 한 가지 사실이 PKCE 와 토큰 저장 전략을 전부 끌고 온 거고요. 흐름을 한국어로 더 차근차근 따라가보고 싶다면 생활코딩의 OAuth 2.0 강의가 좋은 출발점이에요.
+
+<VideoEmbed src="https://www.youtube.com/watch?v=hm2r6LtUbk8" title="생활코딩 - OAuth 2.0 수업 소개" />
+
+<References
+  items={[
+    {
+      id: "rfc-6749",
+      title: "RFC 6749 - The OAuth 2.0 Authorization Framework",
+      href: "https://datatracker.ietf.org/doc/html/rfc6749",
+      description: "네 역할 정의와 Authorization Code Grant 흐름, access token 과 refresh token 의 구분 인용",
+    },
+    {
+      id: "rfc-7636",
+      title: "RFC 7636 - Proof Key for Code Exchange",
+      href: "https://datatracker.ietf.org/doc/html/rfc7636",
+      description: "public client 의 code 가로채기 공격과 code_verifier, code_challenge, S256 동작 인용",
+    },
+    {
+      id: "oauth-browser-bcp",
+      title: "IETF - OAuth 2.0 for Browser-Based Apps",
+      href: "https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps",
+      description: "브라우저 앱의 토큰 저장 전략과 악성 자바스크립트 위험, 현재 best practice 인용",
+    },
+    {
+      id: "oauth-2-1",
+      title: "IETF - The OAuth 2.1 Authorization Framework",
+      href: "https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1",
+      description: "PKCE 의무화, Implicit 제거, redirect URI 정확 일치 같은 2.1 초안의 변경점 인용",
+    },
+  ]}
+/>

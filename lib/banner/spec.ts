@@ -5,6 +5,7 @@ export type MotifKey =
   | "react-native"
   | "tanstack-query"
   | "react"
+  | "auth"
   | "css"
   | "design-system"
   | "layout"
@@ -57,6 +58,7 @@ const TAG_TO_MOTIF: Array<[RegExp, MotifKey]> = [
   [/^React Native$/i, "react-native"],
   [/^(TanStack Query|React Query|React-Query)$/i, "tanstack-query"],
   [/^React$/i, "react"],
+  [/^(OAuth|OAuth 2\.0|OIDC|OpenID Connect|인증|인가|보안|JWT|토큰|로그인|세션 인증)$/i, "auth"],
   [/^(디자인 시스템|디자인 토큰|Atomic Design|Design System)$/i, "design-system"],
   [/^(CSS-in-JS|Emotion|Vanilla Extract|Panda CSS|Linaria|Tailwind|CSS Modules)$/i, "styling"],
   [/^(BEM|CSS 방법론|네이밍|프론트엔드 아키텍처)$/i, "methodology"],
@@ -84,6 +86,7 @@ const MOTIF_PRIORITY: MotifKey[] = [
   "react-native",
   "tanstack-query",
   "react",
+  "auth",
   "design-system",
   "accessibility",
   "transition",
@@ -155,6 +158,13 @@ const PALETTES: Record<MotifKey, BannerPalette> = {
     primary: "#3b82f6",
     accent: "#f87171",
     text: "#dbeafe",
+  },
+  auth: {
+    bg: "#14102e",
+    bgAccent: "#2e2156",
+    primary: "#a78bfa",
+    accent: "#f8a23b",
+    text: "#ede9fe",
   },
   "design-system": {
     bg: "#10182e",
