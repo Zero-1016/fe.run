@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-06-09 23:15
+
+### SHARED.md §RULE-TERM-INTRODUCTION — 번호 기반 스펙 참조 도입 규칙 확장
+
+**변경**: `대상`에 "번호 기반 스펙 참조(RFC 6749, RFC 7636, ECMA-262 등)" 항목
+추가. `형식`에 "번호는 풀어쓰기 불가 → 한 줄 정의 또는 인라인 링크+풀이로 무슨
+표준인지 밝힌다"는 주의 추가.
+
+**이유**: OAuth 2.0 프론트엔드 글 검토 중, RFC 번호가 본문에 설명 없이 등장하면
+독자가 "이게 뭔데?" 하고 막히는 문제 발견. 기존 §RULE-TERM-INTRODUCTION 이
+"표준·명세 약식 표기"를 다루지만 예시가 이름 기반(Background Sync)뿐이고,
+번호 기반 스펙은 "풀어쓰기"가 불가능한 사각지대였음.
+
+**수정 유형**: 기존 규칙 확장 (대상 항목 + 형식 주의)
+
+**영향 범위**:
+
+- blog-writer: §RULE-TERM-INTRODUCTION 참조 (자동 반영)
+- blog-coherence-review: E5 가 이 규칙으로 통독 검사 (자동 반영)
+- 기존 글: RFC/번호 스펙 사용 7건 (data-url-when-to-use, oauth2-frontend-pkce,
+  react-concurrent-rendering, react-use-resource-not-state,
+  stale-while-revalidate-two-layers, swr-vs-tanstack-query-philosophy,
+  why-cookies-follow-every-request) — 강화 방향이라 재검증 시 누락 지점 잡힐 수 있음
+
+**백업**: `.backups/SHARED-20260609-231544.md`
+
+**재검증 결과**: oauth2-frontend-pkce.mdx 는 이미 규칙 준수 (RFC 6749 "인터넷
+표준을 정하는 IETF 가 펴낸 명세", RFC 7636 은 PKCE 로 풀이). 신규 규칙의 모범 예시.
+
+---
+
 ## 2026-05-19 11:30
 
 ### SHARED.md — 번역투·형식명사·접속사 반복·정량 지표 4개 섹션 신설
