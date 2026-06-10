@@ -2,6 +2,7 @@
 title: "프론트엔드를 위한 OAuth 2.0"
 description: "브라우저 앱엔 숨길 시크릿이 없어서, 비밀번호 대신 권한만 빌려주는 OAuth 를 풀어요"
 date: 2026-06-09
+updated: 2026-06-10
 tags: ["OAuth", "인증", "보안", "프론트엔드", "네트워크"]
 banner: auth
 published: true
@@ -26,6 +27,28 @@ OAuth 2.0 의 규칙을 글로 못 박아둔 공식 표준 문서가 [RFC 6749](
 비밀번호를 직접 건네는 대신, 권한을 다루는 층을 하나 끼워 넣고 부탁하는 쪽(client)과 주인(resource owner)을 떼어놓은 거예요. 이 분리가 OAuth 의 출발점이에요.
 
 </Callout>
+
+네 역할이 글로만 나오면 누가 누구에게 무엇을 건네는지 헷갈리기 쉬워요. RFC 6749 는 이 관계를 여섯 단계로 정리해둬요. client 가 요청을 보내면 응답이 돌아오는 왕복이 세 번 이어지는 흐름이에요.
+
+<FlowDiagram
+  height={420}
+  edgeType="straight"
+  caption="Client 가 세 역할과 차례로 주고받는 여섯 단계 (A~F). RFC 6749 Abstract Protocol Flow"
+  nodes={[
+    { id: "client", title: "Client", description: "인화 서비스", x: 0, y: 0, h: 360, kind: "accent" },
+    { id: "owner", title: "Resource Owner", description: "나 · 사진 주인", x: 380, y: 35 },
+    { id: "authz", title: "Authorization Server", description: "구글 계정 서버", x: 380, y: 145 },
+    { id: "rsrc", title: "Resource Server", description: "구글 포토", x: 380, y: 255 },
+  ]}
+  edges={[
+    { from: "client", to: "owner", label: "A. 권한 요청" },
+    { from: "owner", to: "client", label: "B. 인가 grant" },
+    { from: "client", to: "authz", label: "C. 인가 grant 제출" },
+    { from: "authz", to: "client", label: "D. access token" },
+    { from: "client", to: "rsrc", label: "E. access token 제시" },
+    { from: "rsrc", to: "client", label: "F. 보호된 자원" },
+  ]}
+/>
 
 ## 코드를 한 번 받고, 토큰으로 바꾼다
 
@@ -59,6 +82,21 @@ OAuth 2.0 의 규칙을 글로 못 박아둔 공식 표준 문서가 [RFC 6749](
 />
 
 코드를 한 번 받고 그걸 다시 토큰으로 바꾸는 게 빙 돌아가는 것처럼 보이죠. 근데 이 한 단계가 중요해요. 사용자가 거쳐가는 주소창에는 짧은 수명의 code 만 잠깐 노출되고, 진짜 열쇠인 access token 은 서버 간 통신에서만 오가거든요.<Cite id="rfc-6749" /> 브라우저 히스토리나 referer 헤더에 토큰이 새는 걸 막는 구조예요.
+
+<FlowDiagram
+  height={300}
+  caption="code 는 브라우저(프런트 채널)를 거치지만 토큰 교환은 서버끼리(백 채널) 직접 오가요. RFC 6749 Authorization Code Grant"
+  nodes={[
+    { id: "browser", title: "사용자 · 브라우저", description: "프런트 채널 · 주소창", x: 170, y: 0 },
+    { id: "client", title: "Client", description: "인화 서비스 서버", x: 0, y: 210, kind: "accent" },
+    { id: "authz", title: "Authorization Server", description: "구글 토큰 엔드포인트", x: 400, y: 210, kind: "accent" },
+  ]}
+  edges={[
+    { from: "client", to: "browser", label: "① 리다이렉트로 인가 요청" },
+    { from: "browser", to: "authz", label: "② 로그인 후 code 발급" },
+    { from: "client", to: "authz", label: "③ code ⇄ access token (서버 간 직접)", animated: true },
+  ]}
+/>
 
 받은 토큰도 두 종류예요. access token 은 실제 자원을 요청할 때 들고 가는 증표인데 수명이 짧아요. 그게 만료되면 매번 다시 로그인하긴 번거로우니, refresh token 으로 새 access token 을 조용히 받아와요. 한 가지만 기억하면 돼요. refresh token 은 자원 서버가 아니라 오직 authorization server 한테만 보내요. 사진을 달라고 할 때 들고 가는 건 언제나 access token 이에요.
 
