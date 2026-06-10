@@ -291,6 +291,7 @@ interface FlowNode {
   x: number; // 픽셀 좌표
   y: number;
   kind?: NodeKind; // 카드 색상 변형 (기본: "default")
+  h?: number; // 카드 높이(px). 세로로 긴 허브 노드(예: RFC 다이어그램의 Client)를 만들 때
 }
 
 interface FlowEdge {
@@ -305,6 +306,7 @@ interface FlowDiagramProps {
   edges: FlowEdge[];
   height?: number; // 컨테이너 높이 px (기본: 400)
   caption?: string; // 다이어그램 하단 figcaption
+  edgeType?: "smoothstep" | "step" | "straight"; // 선 모양 (기본: "smoothstep")
 }
 ```
 
@@ -366,6 +368,13 @@ interface FlowDiagramProps {
 - 노드 카드는 보통 140~220px 너비. 가로 간격은 200px, 세로는 100~150px이 적당.
 - 자동 `fitView`로 컨테이너에 맞춰 줌·정렬되므로 절대 좌표보다 **상대 위치**가 중요.
 - 핸들은 자동 선택. 일반적으로 좌→우, 상→하 흐름이 자연스럽게 그려진다.
+- 한 변에 여러 엣지가 붙으면 자동으로 레인이 갈린다. 같은 두 노드 사이 **양방향(왕복)
+  엣지**(`a→b`, `b→a`)도 서로 다른 레인을 받아 겹치지 않는다. 단, 짧은 카드에 왕복을
+  여러 쌍 몰면 좁아지니, 한쪽을 `h` 로 키운 **세로 허브 노드**로 두면 RFC 도식처럼
+  화살표가 세로로 펼쳐진다.
+- 선 모양은 `edgeType` 으로 고른다. 기본 `smoothstep`(둥근 꺾은선)은 격자·삼각 배치에
+  두루 무난하다. RFC식 수평 왕복처럼 끝점이 거의 일직선이면 `straight`(곧은 직선)가
+  깔끔하다. 삼각형·대각선 배치에 `straight` 를 쓰면 선이 비스듬해져 어색할 수 있다.
 
 **주의**:
 
