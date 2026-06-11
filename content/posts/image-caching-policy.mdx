@@ -1,0 +1,177 @@
+---
+title: "이미지 캐싱, 헤더부터 무효화까지"
+description: "CDN에 올리는 것까지만 해봤다면, 그 위에 얹을 캐싱 정책 레버를 하나씩 짚어드려요."
+date: 2026-06-11
+tags: ["성능", "CDN", "HTTP", "캐싱"]
+published: true
+---
+
+이미지를 새 걸로 바꿔 배포했는데, 사용자 화면에는 며칠째 옛 이미지가 떠 있던 적이 있어요. [CloudFront](https://aws.amazon.com/cloudfront/)에 올리는 것까지만 하고 그 위에 얹을 레버가 있다는 걸 몰랐던 거죠. 이미지 캐싱에는 Cache-Control 헤더부터 파일명 버저닝, 무효화, CloudFront 설정까지 골라 쓸 레버가 차례로 있어요.
+
+## 헤더 없이 올려도 캐시는 돌아간다
+
+[S3](https://aws.amazon.com/s3/)에 이미지를 올리고 CloudFront를 연결하면 배포는 끝나요. 근데 이때 Cache-Control 헤더를 안 보내면 캐시가 안 될까요? 오히려 반대예요. HTTP는 조건만 맞으면 최대한 캐시하도록 설계된 프로토콜이거든요.<Cite id="mdn-http-caching" />
+
+<Callout variant="info">
+"HTTP is designed to cache as much as possible, so even if no Cache-Control is given, responses will get stored and reused if certain conditions are met." - MDN
+
+헤더를 안 줘도 조건이 맞으면 응답은 저장되고 재사용돼요. 침묵이 곧 허용인 거죠.
+
+</Callout>
+
+이걸 휴리스틱 캐싱이라고 불러요. Cache-Control이 없으면 브라우저가 Last-Modified에서 지난 시간의 약 10%를 수명으로 잡아요. 1년 전에 수정된 이미지라면 36일쯤 캐시되는 거예요. CloudFront 쪽도 마찬가지라서, cache policy(엣지 캐시 동작을 정하는 CloudFront 설정)를 안 만지면 기본 TTL(Time To Live, 엣지가 객체를 들고 있는 수명)이 24시간이에요.<Cite id="aws-expiration" /> 그러니 "아무것도 안 정했으니 캐시 문제는 없겠지"가 성립하지 않아요. 옛 이미지가 보이던 그 화면은 누가 잘못한 게 아니라 기본값이 일한 결과였던 거죠. 정하지 않은 것도 하나의 정책인 셈이에요.
+
+CDN 엣지가 애초에 왜 빠른지, 캐시 계층이 어떻게 생겼는지는 [지난 글](/posts/cdn-speed-and-caching)에서 다뤘어요. 오늘 할 일은 그 위에 정책을 얹는 거예요.
+
+## Cache-Control 디렉티브 골라 쓰기
+
+이미지에 실제로 쓰게 되는 디렉티브는 몇 개 안 돼요. 먼저 `max-age=N`은 응답이 만들어진 시점부터 N초 동안 fresh(아직 유효한 상태)라는 뜻이에요. 받은 시점이 아니라 origin(원본 서버, 여기서는 S3)이 만든 시점 기준이라, CDN에 하루 묵은 이미지를 받으면 브라우저에서는 그만큼 차감된 채로 시작해요.<Cite id="mdn-cache-control" />
+
+`s-maxage`는 CDN 같은 공유 캐시 전용이에요. 공유 캐시에서는 `max-age`를 덮어쓰고, 브라우저는 무시해요. 그래서 "브라우저에는 1분, 엣지에는 하루"처럼 두 캐시의 수명을 분리하는 공식 레버가 돼요.
+
+제일 많이 오해받는 건 `no-cache`예요.
+
+<Callout variant="warning">
+"Note that no-cache does not mean 'don't cache'." - MDN
+
+no-cache는 "캐시하지 마라"가 아니라 "저장은 하되, 쓰기 전에 매번 origin에 물어봐라"예요. 저장 자체를 막는 건 no-store고요.
+
+</Callout>
+
+마지막으로 `immutable`은 fresh인 동안 절대 안 바뀐다는 선언이에요. 이게 붙으면 새로고침할 때 나가던 재검증 요청 자체가 생략돼요. 파일명에 버전이 박혀 있어서 내용이 바뀔 일이 없는 이미지에 쓰라고 만들어진 디렉티브죠.
+
+이미지 한 장이 화면에 닿기까지의 흐름을 그려보면 이 디렉티브들이 어느 자리에서 일하는지 보여요.
+
+<FlowDiagram
+  height={300}
+  edgeType="straight"
+  caption="브라우저 캐시와 엣지 캐시, 두 관문을 지나야 origin에 닿아요"
+  nodes={[
+    {
+      id: "browser",
+      title: "브라우저 캐시",
+      description: "max-age 로 수명이 정해져요",
+      x: 0,
+      y: 80,
+      kind: "accent",
+    },
+    {
+      id: "cdn",
+      title: "CDN 엣지 캐시",
+      description: "s-maxage 가 max-age 를 덮어요",
+      x: 340,
+      y: 80,
+    },
+    {
+      id: "origin",
+      title: "Origin (S3)",
+      description: "재검증 요청에 304 로 답해요",
+      x: 680,
+      y: 80,
+    },
+  ]}
+  edges={[
+    { from: "browser", to: "cdn", label: "수명 끝나면 요청", animated: true },
+    { from: "cdn", to: "browser", label: "hit 이면 응답" },
+    { from: "cdn", to: "origin", label: "miss 면 재검증", animated: true },
+    { from: "origin", to: "cdn", label: "안 변했으면 304" },
+  ]}
+/>
+
+## 옛 이미지를 지우는 두 가지 길
+
+1년짜리 수명을 걸고 나면 다음 고민이 생겨요. 로고를 바꿔야 하는데 이미 사용자 캐시에 1년짜리로 박혀 있다면요?
+
+첫 번째 길은 invalidation, 그러니까 CloudFront에 "이 경로 지워줘"라고 요청하는 무효화 기능이에요. 엣지 캐시에서는 지워지지만 결정적인 한계가 있어요. 사용자 브라우저와 사내 프록시에 이미 저장된 사본에는 손이 안 닿아요. 거기서는 수명이 다할 때까지 옛 이미지가 계속 보이죠.<Cite id="aws-invalidation" />
+
+두 번째 길은 파일명 핑거프린팅이에요. 파일 내용의 해시를 파일명에 박는 방식이죠 (`hero.3fa9c2.webp`). 내용이 바뀌면 파일명이 바뀌고, 캐시 입장에서는 아예 다른 객체라 지울 필요 자체가 없어요. AWS 공식 문서도 이 쪽을 권장해요.
+
+<Callout variant="info">
+"If you want to update your files frequently, we recommend that you primarily use file versioning." - AWS CloudFront
+
+자주 바뀌는 파일이라면 무효화보다 버전 박힌 파일명을 기본 전략으로 삼으라는 거예요. 무효화는 비용이 들고, 버저닝은 롤백도 파일명 하나 되돌리는 걸로 끝나거든요.
+
+</Callout>
+
+빌드 도구가 해시 붙은 파일명을 만들어주고 있다면, 남은 일은 업로드할 때 헤더를 박는 것뿐이에요.
+
+```bash
+# 해시 박힌 이미지는 1년 + immutable
+aws s3 cp ./dist/images s3://my-bucket/images \
+  --recursive \
+  --cache-control "public, max-age=31536000, immutable"
+```
+
+다만 모든 이미지가 URL을 바꿀 수 있는 건 아니에요. 프로필 사진처럼 같은 URL인데 내용만 갈리는 이미지라면 `no-cache`와 ETag(응답 본문의 버전 식별자)를 조합해요. 브라우저가 매번 "내가 가진 버전 그대로야?"라고 묻고, 그대로면 origin이 본문 없이 304 Not Modified로 답해요. 요청은 매번 나가지만 본문 전송은 아껴지는 거죠.
+
+## CloudFront가 내 헤더를 무시할 때
+
+여기까지 헤더를 정성껏 보내도 CloudFront cache policy 설정에 따라 무시될 수 있어요. cache policy의 TTL은 세 가지예요. Minimum TTL과 Maximum TTL은 origin이 보낸 헤더를 강제로 자르는 하한선과 상한선이고, Default TTL은 origin이 아무 캐시 헤더도 안 보낼 때만 쓰여요.<Cite id="aws-cache-policy" />
+
+함정은 Minimum TTL이에요.
+
+<Callout variant="error">
+"If your minimum TTL is greater than 0, CloudFront will cache content for at least the duration specified in the cache policy's minimum TTL, even if the Cache-Control: no-cache, no-store, or private directives are present in the origin headers." - AWS CloudFront
+
+Minimum TTL이 0보다 크면 origin이 no-cache나 no-store를 보내도 그 시간만큼은 강제로 캐시돼요. 분명 캐시하지 말라고 보냈는데 엣지에 남아 있다면 십중팔구 이 설정이에요.
+
+</Callout>
+
+캐시 키 설정도 봐야 해요. CloudFront는 캐시 키(엣지에 저장된 객체의 식별자)에 어떤 쿼리스트링, 헤더, 쿠키를 포함할지 cache policy로 정하는데, 키에 들어가는 값이 적을수록 hit율이 올라가요.<Cite id="aws-cache-key" /> 거꾸로 `?v=2` 같은 쿼리스트링으로 이미지 버전을 올리는 방식을 쓴다면 쿼리스트링이 캐시 키에 포함돼 있어야 갱신이 먹혀요. 키에서 빠져 있으면 v가 몇이든 같은 객체로 취급되거든요.
+
+하나 더, 사용자의 강력 새로고침은 엣지를 못 뚫어요. viewer가 보낸 Cache-Control과 Pragma 헤더를 CloudFront가 무시해요. "새로고침 해보세요"로 해결되는 건 브라우저 캐시까지예요.
+
+## 이미지에 맞는 레시피
+
+정리하면 이미지가 어떤 부류냐에 따라 정책이 갈려요.
+
+| 이미지 부류                              | 헤더                                   | 갱신 방법              |
+| ---------------------------------------- | -------------------------------------- | ---------------------- |
+| 빌드 산출물 (로고, 아이콘)               | `public, max-age=31536000, immutable`  | 파일명 해시 교체       |
+| 같은 URL로 교체되는 이미지 (프로필, 배너) | `max-age=60, s-maxage=86400`           | 교체 시 invalidation 보조 |
+| 이미지 URL을 담은 HTML                   | `no-cache`                             | ETag 재검증            |
+
+마지막 줄이 의외로 중요해요. 새 이미지 URL은 결국 HTML이 실어 나르니까, HTML이 오래 캐시되면 해시를 아무리 바꿔도 사용자는 옛 URL을 들고 있어요.
+
+새 이미지가 안 보이는 문제의 답은 결국 둘 중 하나예요. URL을 바꾸거나, 수명을 짧게 잡거나요. 엣지 수명이 끝난 뒤에도 일단 옛 걸 보여주고 뒤에서 갱신하는 패턴이 궁금하다면 [stale-while-revalidate를 다룬 글](/posts/stale-while-revalidate-two-layers)로 이어가 보세요. 이미지가 성능 점수에 어떤 영향을 주는지는 [이미지와 폰트 글](/posts/core-web-vitals-images-fonts)에 정리해뒀어요.
+
+<References
+  items={[
+    {
+      id: "mdn-cache-control",
+      title: "MDN - Cache-Control",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control",
+      description: "max-age, s-maxage, immutable, no-cache 디렉티브의 정확한 의미",
+    },
+    {
+      id: "mdn-http-caching",
+      title: "MDN - HTTP Caching",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching",
+      description: "휴리스틱 캐싱과 캐시 버스팅, 조건부 요청 흐름",
+    },
+    {
+      id: "aws-cache-key",
+      title: "AWS CloudFront - Control the cache key with a policy",
+      href: "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/controlling-the-cache-key.html",
+      description: "캐시 키 구성과 cache hit ratio 의 관계",
+    },
+    {
+      id: "aws-cache-policy",
+      title: "AWS CloudFront - Understand cache policies",
+      href: "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cache-key-understand-cache-policy.html",
+      description: "TTL 3종과 Minimum TTL 의 강제 캐시 동작",
+    },
+    {
+      id: "aws-expiration",
+      title: "AWS CloudFront - Manage how long content stays in the cache",
+      href: "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html",
+      description: "기본 TTL 24시간, max-age 와 s-maxage 의 상호작용",
+    },
+    {
+      id: "aws-invalidation",
+      title: "AWS CloudFront - Invalidate files to remove content",
+      href: "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Invalidation.html",
+      description: "invalidation 대신 파일 버저닝을 권장하는 이유",
+    },
+  ]}
+/>
