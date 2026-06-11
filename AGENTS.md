@@ -19,6 +19,7 @@
 | validator 단독 실행     | `/blog-validator content/posts/<slug>.mdx`         |
 | expression-review 단독  | `/blog-expression-review content/posts/<slug>.mdx` |
 | coherence-review 단독   | `/blog-coherence-review content/posts/<slug>.mdx`  |
+| flow-review 단독        | `/blog-flow-review content/posts/<slug>.mdx`       |
 | 배너 모티프 추천        | `/blog-banner content/posts/<slug>.mdx`            |
 | writer 실패 로그 확인   | `cat content/tmp/writer-failures.md`               |
 | 글 백업 확인            | `ls content/posts/.backups/`                       |
@@ -129,7 +130,7 @@ via: orchestrator
 
 ## 스킬 관계
 
-12개 스킬은 다음과 같이 호출 관계를 맺습니다.
+13개 스킬은 다음과 같이 호출 관계를 맺습니다.
 
 ### 호출 관계 (실선)
 
@@ -140,12 +141,14 @@ blog-write (오케스트레이터, 새 글 작성)
   ├── blog-writer          (Phase 4)
   ├── blog-validator       (Phase 5)
   ├── blog-expression-review (Phase 5.5)
-  └── blog-coherence-review  (Phase 5.6)
+  ├── blog-coherence-review  (Phase 5.6)
+  └── blog-flow-review       (Phase 5.7, 조건부 — FlowDiagram 있을 때만)
 
 blog-revise (오케스트레이터, 기존 글 다듬기)
   ├── blog-validator       (패턴 1, 2, 3 검증 사이클)
   ├── blog-expression-review (패턴 1, 2, 3 검증 사이클)
   ├── blog-coherence-review  (패턴 1, 2, 3 검증 사이클)
+  ├── blog-flow-review       (검증 사이클, 조건부 — FlowDiagram 있을 때만)
   ├── blog-research        (패턴 3 자료 보강, sub-agent)
   └── blog-write           (패턴 4 완전 재작성)
 
@@ -178,6 +181,7 @@ blog-banner (배너 모티프 관리, 독립 실행)
 | `blog-validator`         | §FRONTMATTER, §FILE-LAYOUT, §RULE-EMDASH, §RULE-COLON-HEADING, §RULE-BOLD, §RULE-BARE-LIST, §RULE-ENGLISH-QUOTE, §DOMAIN-WHITELIST, §META-FEEDBACK-HANDOFF |
 | `blog-expression-review` | §BLOG-VOICE, §RULE-FORBIDDEN-PATTERNS, §RULE-RHYTHM, §RULE-SELF-VOICE, §META-FEEDBACK-HANDOFF                                                              |
 | `blog-coherence-review`  | (논리 구조 검사, 표면 규칙 참조 안 함), §META-FEEDBACK-HANDOFF                                                                                             |
+| `blog-flow-review`       | §MDX-FLOWDIAGRAM, §UI-USER-CHOICE                                                                                                                          |
 | `blog-draft-review`      | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY, §RULE-PRESCRIPTION                                                                                                |
 | `blog-write`             | §SOURCE-PRIORITY, §META-\*, §COMPLEXITY, §FILE-LAYOUT, §UI-USER-CHOICE                                                                                     |
 | `blog-revise`            | §FILE-LAYOUT, §FRONTMATTER, §UI-USER-CHOICE                                                                                                                |
@@ -501,8 +505,9 @@ ls .claude/skills/
 ```
 
 `blog-write`, `blog-research`, `blog-writer`, `blog-validator`, `blog-draft-review`,
-`blog-expression-review`, `blog-coherence-review`, `blog-rule-editor`, `blog-shared`
-9개가 있어야 합니다.
+`blog-expression-review`, `blog-coherence-review`, `blog-flow-review`, `blog-revise`,
+`blog-topic-suggest`, `blog-banner`, `blog-rule-editor`, `blog-shared`
+13개가 있어야 합니다.
 
 각 스킬 디렉토리에 `SKILL.md` (대문자) 가 정확한 이름으로 있어야 인식됩니다.
 

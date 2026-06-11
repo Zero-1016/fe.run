@@ -269,9 +269,33 @@ mode: "single"
 via: "blog-revise"
 ```
 
+#### Step P1-3.5: flow-review 호출 (조건부, FlowDiagram 있을 때만)
+
+본문에 `<FlowDiagram` 이 있을 때만 실행. `grep -c "<FlowDiagram" <파일 경로>` 가 0 이면
+이 Step skip (서버도 안 띄움).
+
+`.claude/skills/blog-flow-review/SKILL.md` 를 Read 로 주입하고 호출:
+
+```
+Read .claude/skills/blog-flow-review/SKILL.md
+```
+
+입력:
+
+```
+files: [<파일 경로>]
+mode: "single"
+via: "blog-revise"
+dry_run: <패턴 5(분석만) 이면 true, 아니면 false>
+```
+
+flow-review 가 스크린샷 기반으로 다이어그램 시각 품질을 판정하고 수정안만 반환.
+수정 적용은 blog-revise 가 (패턴 2/3 의 수정 적용 GATE 흐름으로) 처리.
+
 #### Step P1-4: 결과 종합
 
-세 리뷰어의 결과를 종합해서 Phase 4 (결과 보고) 로 진입.
+리뷰어들(validator / expression / coherence / 조건부 flow-review)의 결과를 종합해서
+Phase 4 (결과 보고) 로 진입.
 
 ---
 

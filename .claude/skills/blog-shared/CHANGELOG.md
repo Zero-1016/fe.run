@@ -1092,3 +1092,99 @@ AGENTS.md 표 1행 갱신.
 **재검증 결과**: (Phase 6 진행 후 업데이트)
 
 ---
+
+## 2026-06-10 14:10
+
+### SHARED.md §MDX-FLOWDIAGRAM
+
+**변경**: "구조에 형태를 맞추기" 블록 신설. 표현하려는 실제 관계 구조를 먼저 보고
+다이어그램 형태와 `edgeType` 을 맞추라는 원칙 추가.
+
+- 요청·응답 왕복(RFC 프로토콜 흐름 등) → `h` 세로 허브 노드 + 반대편 세로 스택 +
+  `edgeType="straight"`. 같은 두 노드 사이 양방향 화살표 직접 겹침은 실패 패턴으로 명시.
+- 삼각형·대각선 토폴로지 → 기본 `smoothstep`.
+- 세부 동작은 `components/ui/CLAUDE.md` 참조 (SSOT 유지).
+
+**이유**: OAuth 글(oauth2-frontend-pkce) 작성 중 RFC 6749 Abstract Protocol Flow 를
+그리며 발견. 양방향 화살표를 짧은 카드에 겹쳐 그려 두 번 실패했고, 세로 허브 + 직선
+으로 풀렸다. 일반화해 집필 단계에서 막연히 노드를 흩뿌리지 않도록 가이드.
+
+**수정 유형**: 새 규칙 블록 추가
+
+**영향 범위**:
+
+- blog-writer: Step 4 MDX 컴포넌트 활용이 `§MDX-FLOWDIAGRAM` 참조 (자동 반영)
+- 컴포넌트 측: `components/ui/flow-diagram.tsx` 에 `h` prop, `edgeType` prop, 레인
+  자동 분배 추가됨 (스킬 외부 변경). `components/ui/CLAUDE.md` 에 상세 문서화.
+- 기존 글: 영향 없음 (집필 가이드)
+
+**백업**: `.backups/SHARED-20260610-140950.md`
+
+---
+
+## 2026-06-10 14:25
+
+### 신규 스킬: blog-flow-review
+
+**변경**: FlowDiagram 시각 검수 스킬 신설 (`.claude/skills/blog-flow-review/SKILL.md`).
+
+FlowDiagram 이 있는 글에 한해 실제 페이지를 렌더(Playwright)해 라이트/다크
+스크린샷을 찍고, 그 이미지를 비전으로 검사해 화살표·라벨 겹침, 노드 과밀, 캔버스
+밖 잘림, 선 모양 부적합(§MDX-FLOWDIAGRAM "구조에 형태를 맞추기" 위반)을 판정한다.
+FlowDiagram 없으면 grep 가드로 즉시 skip(서버도 안 띄움).
+
+**이유**: 다이어그램의 겹침·정렬 문제는 렌더된 픽셀 문제라 MDX 텍스트만으로는 못
+잡는다. OAuth 글에서 RFC 도식을 그리며 실제로 두 번 실패했고, 사람 눈(스크린샷)이
+있어야 잡혔다. 이를 자동화.
+
+**수정 유형**: 새 skill 파일 생성
+
+**구성**:
+
+- 스킬: `blog-flow-review/SKILL.md` (Read/Bash/Edit/Grep/AskUserQuestion)
+- 인프라(스킬 밖, 일반 파일): `scripts/shoot-flow.ts` — 실행 중 dev 서버(:4321)
+  재사용, 없으면 임시 기동. `figure:has(.react-flow)` 별 light/dark 스크린샷을
+  `content/tmp/flow-shots/` 에 저장. stdout 으로 경로(또는 NO_FLOWDIAGRAM) 출력.
+- 판정 기준 SSOT: SHARED.md §MDX-FLOWDIAGRAM (복사 아님, Read 참조)
+
+**SSOT 유지**: 판정 규칙은 §MDX-FLOWDIAGRAM 한 곳, 컴포넌트 동작은
+`components/ui/CLAUDE.md` 한 곳. blog-flow-review 는 둘을 참조만.
+
+**통합(예정, 별도 diff 확인)**:
+
+- blog-write: coherence-review(5.6) 다음 조건부 Phase 로 연결 (FlowDiagram 있을 때만)
+- blog-revise: 검증 사이클 끝에 조건부 연결
+- AGENTS.md: 스킬 수·빠른 참조·호출/참조 관계 표 갱신
+
+**백업**: 신규 파일이라 백업 없음
+
+---
+
+## 2026-06-10 14:40
+
+### blog-flow-review 파이프라인 통합
+
+**변경**: blog-flow-review 를 오케스트레이터에 조건부로 연결.
+
+- `blog-write/SKILL.md`: Phase 5.6(coherence) 다음에 **Phase 5.7 flow-review** 추가.
+  `grep "<FlowDiagram"` 가드로 있을 때만 실행, 없으면 skip. 수정안은 사용자 확인 후
+  오케스트레이터가 해당 블록만 Edit, 1회 재실행으로 확인. 푸터 변경 이력에도 한 줄 추가.
+- `blog-revise/SKILL.md`: 검증 사이클에 **Step P1-3.5 flow-review**(조건부) 추가.
+  패턴 5(분석만)에서는 dry_run=true. P1-4 종합 문구를 "리뷰어들(... 조건부 flow-review)"
+  로 갱신. P1 사이클을 재사용하는 패턴 2/3 에도 자동 전파.
+- `AGENTS.md`: 빠른 참조에 flow-review 단독 행 추가, 스킬 수 12→13, 호출 관계
+  (blog-write/blog-revise 트리)·참조 관계 표(§MDX-FLOWDIAGRAM, §UI-USER-CHOICE) 갱신,
+  skill 인식 확인 목록을 13개 전체로 정정(기존 9개 목록이 revise/topic-suggest/banner
+  누락 상태였음).
+
+**수정 유형**: 기존 skill 통합 (오케스트레이터 2개 + AGENTS.md)
+
+**SSOT 유지**: flow-review 는 판정 규칙을 §MDX-FLOWDIAGRAM 에서 Read 참조만. 통합
+지점들은 호출 계약(files/mode/via/dry_run)만 전달.
+
+**백업 주의**: 이 작업 라운드 동안 RTK 훅이 셸 파일 쓰기(cp/heredoc/리다이렉트)를
+조용히 깨뜨려 일부 `.backups/` 자동 백업이 누락됨. 모든 실제 편집은 Edit/Write
+툴(셸 우회)로 적용돼 정상. 편집 직전 버전은 git HEAD 로 롤백 가능
+(`git show HEAD:<경로>`).
+
+---
