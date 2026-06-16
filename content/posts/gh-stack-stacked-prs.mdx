@@ -1,0 +1,185 @@
+---
+title: "리뷰가 막히는 큰 PR 쪼개기"
+description: "변경 파일 마흔 개짜리 PR로 리뷰가 막힐 때 꺼내는 gh stack 사용법이에요."
+date: 2026-06-16
+tags: ["Git", "GitHub", "CLI", "코드 리뷰", "협업"]
+published: true
+---
+
+기능 하나 만들었는데 변경된 파일이 마흔 개예요. 리뷰어한테 보내기가 미안하죠. 그렇다고 쪼개자니 브랜치를 일일이 갈아타며 관리하는 게 더 골치고요. gh stack은 큰 변경을 작은 PR로 쌓아 올리고, 맨 아래 PR이 병합되면 그 위에 쌓인 PR들을 자동으로 다시 맞춰줘요.
+
+## 큰 PR이 리뷰를 막을 때
+
+PR이 커지면 리뷰어가 한눈에 담지 못해요. "나중에 볼게요"가 쌓이고, 그사이 main이 움직이면 충돌까지 따라붙죠. [gh stack](https://github.github.com/gh-stack/) 공식 문서도 이 지점을 첫 문장으로 짚어요.<Cite id="gh-stack-docs" />
+
+<Callout variant="info">
+"Large pull requests are hard to review, slow to merge, and prone to conflicts." - GitHub Stacked PRs 문서
+
+큰 PR은 리뷰가 밀리고 병합이 늦어지면서 충돌까지 부른다는 거예요. 우리가 매번 겪는 그 흐름이죠.
+
+</Callout>
+
+리뷰 코멘트 한 줄에 방어부터 하게 되는 이유는 [지난 글](/posts/code-review-constructive-feedback)에서 다뤘는데, 애초에 PR이 작으면 그 마찰부터 줄어들어요. 문제는 "작게 나누기"가 말처럼 쉽지 않다는 거고요.
+
+## PR을 쌓는다는 발상
+
+스택 PR의 핵심은 단순해요. 각 PR의 base 브랜치를 main이 아니라 바로 아래 PR의 브랜치로 잡는 거예요. 그러면 리뷰어는 그 레이어에서 바뀐 diff만 보게 되죠. 스키마 PR을 보는 사람은 스키마만, API PR을 보는 사람은 API만 봐요.
+
+예를 들어 프로필 기능을 세 조각으로 나눈다고 해볼게요. 테이블 스키마, 조회 API, 화면 연결. 이걸 따로따로 main에 거는 대신, 아래에서 위로 쌓아 올려요.
+
+<FlowDiagram
+  height={440}
+  caption="아래에서 위로 쌓이는 스택. 각 PR의 base는 바로 아래 브랜치예요."
+  nodes={[
+    { id: "ui", title: "프로필 화면", description: "PR 3, 맨 위 레이어", x: 0, y: 0, kind: "success" },
+    { id: "api", title: "프로필 API", description: "PR 2", x: 0, y: 120 },
+    { id: "schema", title: "프로필 스키마", description: "PR 1, 맨 아래", x: 0, y: 240 },
+    { id: "main", title: "main", description: "트렁크 브랜치", x: 0, y: 360, kind: "accent" },
+  ]}
+  edges={[
+    { from: "main", to: "schema", label: "base", animated: true },
+    { from: "schema", to: "api", label: "base", animated: true },
+    { from: "api", to: "ui", label: "base", animated: true },
+  ]}
+/>
+
+맨 아래 스키마 PR의 base는 main이고, API PR의 base는 스키마 브랜치, 화면 PR의 base는 API 브랜치예요. 리뷰어 입장에선 각 단계가 작고 맥락이 분명하니 훨씬 빨리 봐줄 수 있죠.
+
+## checkout -b 로 직접 쌓으면
+
+여기까지 들으면 "그거 `git checkout -b`로도 되는 거 아냐?" 싶어요. 맞아요, 브랜치를 이어서 파는 것 자체는 평소 하던 그대로예요.
+
+```bash
+# 스키마 브랜치를 main에서 따고
+git checkout main
+git checkout -b add-profile-schema
+
+# 그 위에서 API 브랜치를 딴다
+git checkout -b add-profile-api
+
+# 다시 그 위에서 화면 브랜치
+git checkout -b add-profile-ui
+```
+
+문제는 이다음이에요. `git checkout -b`는 브랜치를 만들어줄 뿐, 이 셋이 "스택"이라는 걸 어디에도 기록하지 않아요. 누가 누구 위에 얹혀 있는지는 오직 내 머릿속에만 있죠. 그래서 PR을 열 때마다 GitHub UI에서 base 브랜치를 main에서 아래 브랜치로 직접 바꿔줘야 해요. 안 바꾸면 API PR이 스키마 변경분까지 통째로 끌어안은 거대한 diff로 열려버려요. 쪼갠 의미가 사라지는 거죠.
+
+gh stack은 이 순서를 `.git/gh-stack`이라는 로컬 JSON 파일에 적어둬요. 저장소에 커밋되진 않고 내 작업 디렉터리에만 남죠. 어느 브랜치가 어느 브랜치 위에 있는지를 도구가 기억하니까, PR의 base도 알아서 맞춰주고 나중에 리베이스할 때도 그 순서를 따라가요. 결국 차이는 "브랜치를 만드는 것"이 아니라 "스택이라는 관계를 누가 들고 있느냐"예요.
+
+## 설치하고 첫 스택 쌓기
+
+설치는 gh CLI 확장 한 줄이에요. gh 2.0 이상이면 동작해요.
+
+```bash
+gh extension install github/gh-stack
+```
+
+이제 앞에서 나눈 프로필 기능을 쌓아볼게요. 첫 레이어는 `gh stack init`으로 시작해요. base는 자동으로 main이 잡혀요.
+
+```bash
+gh stack init add-profile-schema
+git commit -am "프로필 테이블 스키마 추가"
+```
+
+그 위로는 `gh stack add`만 부르면 돼요. base는 알아서 바로 아래 브랜치로 잡히고요.
+
+```bash
+gh stack add add-profile-api
+git commit -am "프로필 조회 API 추가"
+
+gh stack add add-profile-ui
+git commit -am "프로필 화면 연결"
+```
+
+작업을 끝냈으면 스택 전체를 한 번에 올려요.
+
+```bash
+gh stack submit
+```
+
+이 한 줄로 세 브랜치가 한꺼번에 푸시되면서, 각 PR의 base가 알맞게 설정된 PR 세 개가 GitHub에 열려요. 명령이 길게 느껴지면 `gh stack alias`로 `gs` 같은 단축 별칭을 만들 수도 있어요.<Cite id="gh-stack-docs" />
+
+지금 스택이 어떻게 쌓였는지는 이 명령으로 봐요.
+
+```bash
+gh stack view
+```
+
+그러면 대략 이런 모습이 찍혀요.
+
+```text
+● add-profile-ui      #1242  프로필 화면 연결
+● add-profile-api     #1241  프로필 조회 API 추가
+● add-profile-schema  #1240  프로필 테이블 스키마 추가
+○ main
+```
+
+위에서부터 가장 최근 레이어고, 맨 아래 main이 트렁크예요. 각 줄이 PR 하나에 대응하니까, 내가 지금 어느 층에 서 있는지 헷갈릴 일이 줄어요.
+
+## 아래 PR이 병합되면
+
+여기가 손으로 하면 제일 귀찮고, 또 사고가 잘 나는 부분이에요. 맨 아래 스키마 PR이 리뷰를 통과해서 main에 병합됐다고 해볼게요. 그럼 위에 있던 API PR과 화면 PR은 이제 사라질 브랜치를 base로 들고 있는 셈이라, 최신 main 위로 다시 얹어줘야 해요. 커밋을 다른 베이스 위에 옮겨 붙이는 이 작업이 리베이스고요.
+
+평범하게 머지 커밋으로 병합했다면 이건 비교적 얌전해요.
+
+```bash
+# 스키마 PR이 main에 병합된 뒤
+
+# 남은 스택을 최신 main 기준으로 한 번에 다시 맞추기
+gh stack sync
+
+# 다시 확인
+gh stack view
+```
+
+`gh stack sync`는 origin에서 최신 변경을 받아온 다음, 스택의 각 브랜치가 바로 아래 레이어의 끝을 자기 히스토리에 담고 있도록 정리해줘요.<Cite id="gh-stack-repo" /> 위 PR들의 base가 자동으로 한 칸씩 당겨지고, 충돌이 없으면 그대로 끝나요.
+
+## 스쿼시 머지가 부르는 충돌
+
+문제는 많은 팀이 main에 스쿼시 머지를 쓴다는 거예요. 스쿼시 머지는 PR 안의 커밋 여러 개를 하나로 합쳐서 main에 새 커밋으로 얹는 방식이에요. 히스토리가 깔끔해지는 대신, 원래 커밋들의 정체성이 사라져요. 바로 여기서 스택이 꼬여요.
+
+스키마 PR이 스쿼시 머지되면, main에는 스키마 변경이 통째로 뭉친 새 커밋 하나가 생겨요. 그런데 그 위의 API 브랜치는 여전히 스키마 PR의 원래 커밋들을 자기 히스토리에 그대로 들고 있죠. 이 상태에서 그냥 `git rebase main`을 돌리면, git은 API 브랜치에 있는 스키마 원래 커밋들을 main 위에 다시 적용하려 들어요. 그 변경은 이미 main에 스쿼시된 형태로 들어가 있는데도요. 결과는 스키마가 건드린 거의 모든 줄에서 충돌이에요. 분명 내 작업은 화면 코드뿐인데 엉뚱한 스키마 파일에서 conflict가 터지는 거죠.
+
+<Callout variant="warning">
+손으로 풀 때 정답은 `git rebase --onto main add-profile-schema add-profile-api` 예요.
+
+"add-profile-schema 위에 얹혀 있던 add-profile-api만 떼어서 main 위에 다시 올려라"라는 뜻이에요. 이미 스쿼시되어 main에 들어간 스키마 커밋은 빼고, 순수하게 API가 더한 커밋만 옮기는 거죠.
+
+</Callout>
+
+이 `--onto` 한 줄을 모르고 매번 충돌을 손으로 뭉개다 보면, 멀쩡한 코드가 중복 커밋으로 더러워지기 십상이에요. gh stack은 이 상황을 알아서 처리해요. 아래 PR이 병합된 걸 감지하면 리베이스를 `--onto` 모드로 자동 전환해서, 이미 병합된 커밋은 건너뛰고 위 레이어가 더한 변경만 새 base 위에 다시 얹어주거든요.<Cite id="gh-stack-repo" /> 우리가 외워야 했던 그 까다로운 한 줄을, 도구가 대신 골라 써주는 셈이죠.
+
+## 아직은 프리뷰라는 점
+
+여기까지 읽고 바로 회사 저장소에서 따라 해보려 했다면, 한 가지 짚고 갈 게 있어요. 2026년 6월 현재 스택 PR은 프라이빗 프리뷰예요.
+
+<Callout variant="warning">
+"Stacked PRs is currently in private preview. This feature will not work unless enabled for your repository." - GitHub Stacked PRs 문서
+
+내 저장소에서 기능이 켜져 있지 않으면 명령이 동작하지 않아요. `gh.io/stacksbeta`에서 웨이트리스트에 등록해야 써볼 수 있어요.
+
+</Callout>
+
+프리뷰 접근을 아직 못 받았다면, 위에서 본 `git checkout -b`와 `git rebase --onto` 흐름을 그대로 손으로 돌려보는 게 좋은 연습이에요. gh stack이 뒤에서 정확히 그 일을 해주거든요. 손맛을 한 번 보고 나면, 나중에 도구가 켜졌을 때 그게 뭘 줄여주는지 바로 와닿아요.
+
+<FAQ items={[
+  { question: "ghstack나 Graphite랑 같은 도구인가요?", answer: "아니에요. gh stack은 GitHub가 직접 만든 공식 gh CLI 확장이에요. Meta의 ghstack이나 Graphite, spr 같은 도구는 같은 스택 PR 개념을 다루지만 별개의 서드파티 도구라서 명령어와 동작이 달라요." },
+  { question: "스쿼시 머지를 쓰면 스택을 못 쓰나요?", answer: "쓸 수 있어요. 손으로 리베이스하면 스쿼시된 커밋 때문에 충돌이 나기 쉽지만, gh stack은 아래 PR이 병합된 걸 감지하면 rebase를 --onto 모드로 돌려서 이미 병합된 커밋을 건너뛰어요. 다만 같은 줄을 위아래 PR이 동시에 고쳤다면 그건 진짜 충돌이라 직접 풀어야 해요." },
+  { question: "지금 바로 제 저장소에서 쓸 수 있나요?", answer: "프라이빗 프리뷰라 저장소마다 기능을 켜야 동작해요. gh.io/stacksbeta 웨이트리스트에 등록해 접근 권한을 받은 저장소에서만 명령이 먹혀요." },
+]} />
+
+<References
+  items={[
+    {
+      id: "gh-stack-docs",
+      title: "GitHub - Stacked PRs 공식 문서",
+      href: "https://github.github.com/gh-stack/",
+      description: "스택 PR 개념과 init/add/submit/sync 흐름, 프리뷰 상태와 웨이트리스트 안내",
+    },
+    {
+      id: "gh-stack-repo",
+      title: "GitHub - github/gh-stack 저장소",
+      href: "https://github.com/github/gh-stack",
+      description: "전체 명령어 세트, 병합 후 --onto 리베이스 동작, 스택 메타데이터 저장 방식",
+    },
+  ]}
+/>
