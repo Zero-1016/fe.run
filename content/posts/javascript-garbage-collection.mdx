@@ -1,0 +1,158 @@
+---
+title: "자바스크립트는 언제 메모리를 비울까"
+description: "자바스크립트 GC는 Rust나 C와 뭐가 다를까요. 누가 언제 메모리를 치우는지로 갈려요."
+date: 2026-06-22
+tags: ["JavaScript", "가비지 컬렉션", "메모리", "V8", "CS"]
+published: true
+---
+
+`let cache = makeHugeObject()` 로 큰 객체를 만들고, 다 쓴 다음 `cache = null` 을 넣어요. 그러면 그 메모리가 그 줄에서 바로 반납될까요? 아니에요. 자바스크립트는 변수를 비우는 순간이 아니라, 그 객체에 더 이상 닿을 수 없게 됐을 때 따로 치워요. 자바스크립트의 메모리 회수는 "지금 이 객체에 닿을 수 있나"로 결정되고, 다른 언어와의 차이는 그 판단을 누가 언제 하느냐로 갈려요.
+
+## 닿을 수 있으면 살리고, 못 닿으면 치워요
+
+가비지 컬렉터(garbage collector), 줄여서 GC는 "더 이상 안 쓰는 메모리"를 자동으로 찾아 반납하는 장치예요. 문제는 "안 쓴다"를 기계가 어떻게 아느냐는 거죠. 사람 마음을 읽을 순 없으니까, 현대 자바스크립트 엔진은 이 정의를 한 단계 더 단순한 질문으로 바꿔요. "이 객체에 도달할 수 있는가"로요.
+
+<Callout variant="info">
+"This algorithm reduces the definition of 'an object is no longer needed' to 'an object is unreachable.'" - MDN
+
+"안 쓰는 객체"라는 모호한 정의를 "닿을 수 없는 객체"라는 또렷한 정의로 바꾼다는 뜻이에요. 닿을 수 있으면 언제든 다시 쓸지 모르니 살려두고, 어디서도 못 닿으면 치워요.
+
+</Callout>
+
+판단은 roots에서 시작해요. roots는 무조건 살아 있다고 보는 출발점이에요. 브라우저라면 전역 객체, 실행 중인 함수의 지역 변수 같은 것들이죠. 거기서 참조를 타고 타고 닿는 객체는 전부 살아 있는 걸로 표시(mark)하고, 한 바퀴 다 돌고도 표시 안 된 메모리를 쓸어담아요(sweep). 이 방식을 mark-and-sweep이라고 불러요.<Cite id="mdn-memory" />
+
+<FlowDiagram
+  height={360}
+  caption="루트에서 못 닿는 C와 D는 서로를 참조해도 garbage예요"
+  nodes={[
+    { id: "root", title: "루트", description: "전역, 실행 중 스택", x: 0, y: 120, kind: "accent" },
+    { id: "a", title: "객체 A", description: "루트가 참조", x: 240, y: 40 },
+    { id: "b", title: "객체 B", description: "도달 가능, 살림", x: 480, y: 40, kind: "success" },
+    { id: "c", title: "객체 C", description: "도달 불가, garbage", x: 240, y: 240, kind: "error" },
+    { id: "d", title: "객체 D", description: "도달 불가, garbage", x: 480, y: 240, kind: "error" },
+  ]}
+  edges={[
+    { from: "root", to: "a", label: "참조", animated: true },
+    { from: "a", to: "b" },
+    { from: "c", to: "d", label: "서로 참조" },
+    { from: "d", to: "c" },
+  ]}
+/>
+
+도달 가능성으로 보면 좋은 점이 하나 있어요. 위 그림의 C와 D는 서로를 가리키고 있죠. 옛날 방식인 참조 카운팅(reference counting)은 "나를 가리키는 참조가 몇 개냐"를 세서 0이 되면 치우는데, C와 D는 서로 1개씩 들고 있어서 영영 0이 안 돼요. 둘 다 아무도 안 쓰는데도 메모리에 눌러앉는 거죠. 이게 순환 참조 누수예요. 반면 도달 가능성은 "루트에서 닿느냐"만 보니까, 루트와 끊긴 C와 D는 서로 껴안고 있어도 깔끔하게 치워져요. 그래서 요즘 자바스크립트 엔진은 참조 카운팅을 GC로 쓰지 않아요.
+
+## V8은 한 번에 다 비우지 않아요
+
+mark-and-sweep을 매번 힙 전체에 돌리면 오래 걸려요. 그동안 자바스크립트 실행이 멈추니까 화면도 같이 버벅이죠. 그래서 크롬과 Node.js의 엔진인 [V8](https://v8.dev)은 한 가지 경험칙에 기대요. "객체는 대부분 금방 죽는다"는 거예요.
+
+<Callout variant="info">
+"Most objects die young." - V8 블로그
+
+함수 안에서 만든 임시 객체처럼, 할당되자마자 곧 도달 불가능해지는 객체가 압도적으로 많다는 관찰이에요. 그러면 갓 태어난 영역만 자주 들여다보는 게 이득이죠.
+
+</Callout>
+
+그래서 V8은 힙을 young generation과 old generation으로 나눠요. 새 객체는 young에 넣고, 여기를 Scavenger라는 작은 GC가 자주 청소해요. Scavenger는 살아남은 객체만 다른 공간으로 복사하고 나머지는 통째로 버리는 식이라 빠르죠. 두 번의 청소를 살아남으면 "얘는 오래 살 객체구나" 하고 old로 승급시켜요. old는 어쩌다 한 번 Major GC가 mark-and-sweep에 압축(compaction)까지 더해서 정리해요.<Cite id="v8-trash" />
+
+진짜 문제는 이 marking이 메인 스레드를 멈춘다는 거였어요. 메인 스레드가 한 가닥이라 거기서 GC가 돌면 클릭도 같이 멈추거든요. 이 한 가닥 이야기는 [지난 글](/posts/web-worker-concurrency)에서 다뤘어요. V8은 marking을 백그라운드 헬퍼 스레드로 빼는 concurrent marking으로 이걸 풀었어요. 측정해 보니 메인 스레드의 marking 시간이 60에서 70퍼센트까지 줄었다고 해요.<Cite id="v8-concurrent" /> 멈춤을 없앤 게 아니라, 멈추는 자리를 잘게 쪼개고 뒤로 미룬 거죠.
+
+## 다른 언어는 누가, 언제 치우나
+
+GC가 당연한 건 아니에요. C와 C++에는 자동 GC가 없어요. 개발자가 `malloc` 으로 직접 메모리를 받고 `free` 로 직접 돌려줘요. 빠르고 예측 가능한 대신, 돌려주는 걸 깜빡하면 누수고 두 번 돌려주면 크래시예요. 그 책임이 통째로 사람한테 있죠.
+
+Rust는 여기서 재미있는 선택을 해요. 런타임 GC도 없고, 그렇다고 사람한테 `free` 를 맡기지도 않아요. 대신 컴파일러가 소유권(ownership) 규칙으로 확인해요.
+
+<Callout variant="warning">
+"Memory is managed through a system of ownership with a set of rules that the compiler checks." - The Rust Programming Language
+
+규칙을 어기면 컴파일 자체가 안 돼요. 그러니까 메모리 정리가 런타임이 아니라 컴파일 타임에 결정되는 셈이에요.
+
+</Callout>
+
+값의 주인이 스코프를 벗어나면 그 자리에서 메모리가 반납돼요. 닫는 중괄호에서 Rust가 `drop` 을 자동으로 불러주거든요.<Cite id="rust-book" />
+
+```rust
+fn main() {
+    let s = String::from("heap에 올라가요");
+    // s 를 여기서 마음껏 써요
+} // 이 중괄호에서 Rust 가 drop(s) 를 불러 메모리를 반납해요
+```
+
+Python은 또 달라요. 1차 메커니즘이 참조 카운팅이에요. 앞에서 본 순환 참조 약점이 그대로 있어서, 그걸 메우는 순환 수집기를 따로 둬요. Python 공식 문서가 "순환 참조를 안 만든다고 확신하면 수집기를 꺼도 된다"고 적어둘 정도로, 둘은 분리된 장치예요.<Cite id="python-gc" />
+
+Java와 Go는 자바스크립트와 가장 가까운 쪽이에요. 둘 다 roots에서 포인터를 따라가며 살아 있는 객체를 찾는 트레이싱 GC를 써요. 한때 GC라고 하면 전체를 멈추는 Stop-The-World, 줄여서 STW가 따라붙었는데, 요즘은 그 멈춤을 줄이는 쪽으로 움직여요.<Cite id="go-gc" />
+
+<Callout variant="info">
+"The Go GC ... is not fully stop-the-world and does most of its work concurrently with the application." - A Guide to the Go Garbage Collector
+
+Go의 GC는 일을 거의 다 애플리케이션과 동시에 하고, 잠깐씩만 멈춰요. V8이 concurrent marking으로 간 방향과 똑같죠.
+
+</Callout>
+
+흥미로운 건 Java의 세대별 GC도 V8과 같은 가정에서 나왔다는 거예요. Java도 객체 대부분이 young에서 죽는다고 보고 young 영역을 빠르게 청소하거든요.<Cite id="oracle-java" /> 같은 관찰에서 출발한 설계라 모양이 닮았어요.
+
+## 결국 차이는 언제, 얼마나 멈추나
+
+한 줄로 줄이면 메모리 관리는 "누가 언제 치우나"의 스펙트럼이에요. 한쪽 끝에 사람이 직접 치우는 C가 있고, 그 옆에 컴파일러가 컴파일 타임에 못 박는 Rust가 있어요. 반대쪽 끝에는 런타임이 알아서 치우는 트레이싱 GC 진영, 곧 자바스크립트와 Java와 Go가 모여 있죠. Python은 참조 카운팅을 바탕에 깔고 순환 수집기를 얹은 중간 형태고요.
+
+그래서 "자바스크립트 GC가 특별하냐"고 물으면, 알고리즘 자체는 Java나 Go와 같은 트레이싱 GC 가족이에요. 세대를 나누는 발상도 공유하고요. 진짜 차이는 멈춤을 어디에 두고 얼마나 짧게 가져가느냐, 그리고 그 일을 사람이 아니라 엔진이 대신 해준다는 점이에요. `cache = null` 한 줄이 그 자리에서 메모리를 비우지 않는 건, 엔진이 더 좋은 타이밍에 닿을 수 없게 된 것들을 한꺼번에 치우려고 기다리는 거예요.
+
+<FAQ
+  items={[
+    {
+      question: "자바스크립트에서 GC를 수동으로 부를 수 있나요?",
+      answer: "표준 자바스크립트에는 GC를 강제로 트리거하는 공식 API가 없어요. 언제 도울지는 엔진이 정해요. Node.js를 특정 플래그로 켜면 디버깅용으로 노출되긴 하지만, 일반 코드에서 기대면 안 돼요. 회수 시점을 직접 제어하는 대신, 안 쓰는 참조를 끊어 도달 불가능하게 만드는 게 우리가 할 수 있는 일이에요.",
+    },
+    {
+      question: "GC가 있으면 메모리 누수는 안 생기나요?",
+      answer: "생겨요. GC는 도달 불가능한 객체만 치우거든요. 안 쓰는데도 전역 배열이나 클로저, 안 떼어낸 이벤트 리스너가 계속 참조를 붙들고 있으면, 그 객체는 도달 가능한 상태라 GC가 손대지 않아요. 누수의 정체는 대부분 깜빡 남겨둔 참조예요.",
+    },
+  ]}
+/>
+
+<References
+  items={[
+    {
+      id: "mdn-memory",
+      title: "MDN - Memory management",
+      href: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Memory_management",
+      description: "도달 가능성, mark-and-sweep, 참조 카운팅의 순환 참조 한계",
+    },
+    {
+      id: "rust-book",
+      title: "The Rust Programming Language - What Is Ownership?",
+      href: "https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html",
+      description: "소유권 규칙과 스코프 종료 시 drop 자동 호출",
+    },
+    {
+      id: "python-gc",
+      title: "Python docs - gc module",
+      href: "https://docs.python.org/3/library/gc.html",
+      description: "참조 카운팅을 보완하는 순환 수집기, 비활성화 가능 설명",
+    },
+    {
+      id: "go-gc",
+      title: "A Guide to the Go Garbage Collector",
+      href: "https://go.dev/doc/gc-guide",
+      description: "트레이싱 GC 정의와 not fully stop-the-world 동작",
+    },
+    {
+      id: "oracle-java",
+      title: "Oracle - Java HotSpot Garbage Collection Tuning Guide",
+      href: "https://docs.oracle.com/en/java/javase/17/gctuning/garbage-collector-implementation.html",
+      description: "세대별 가설과 young generation 빠른 수집",
+    },
+    {
+      id: "v8-trash",
+      title: "V8 blog - Trash talk: the Orinoco garbage collector",
+      href: "https://v8.dev/blog/trash-talk",
+      description: "Most objects die young, Scavenger와 Major GC 구조",
+    },
+    {
+      id: "v8-concurrent",
+      title: "V8 blog - Concurrent marking in V8",
+      href: "https://v8.dev/blog/concurrent-marking",
+      description: "백그라운드 marking으로 메인 스레드 marking 시간 60에서 70퍼센트 감소",
+    },
+  ]}
+/>
