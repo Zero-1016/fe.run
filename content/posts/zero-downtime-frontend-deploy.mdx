@@ -1,0 +1,164 @@
+---
+title: "배포해도 사이트가 안 멈추는 이유"
+description: "옛 버전과 새 버전이 잠깐 공존하니까 배포가 안 멈춰요."
+date: 2026-06-22
+tags: ["배포", "CDN", "캐싱", "빌드"]
+published: true
+---
+
+서버를 배포할 때는 보통 인스턴스를 하나씩 내렸다 올리거나, 트래픽을 새 무리로 천천히 넘겨요. 그런데 프론트엔드는 배포 버튼을 눌러도 누가 쓰던 중이든 화면이 멈추지 않죠. 같은 무중단 배포라는 말을 쓰는데 체감이 너무 달라요. 이유는 프론트 배포가 돌아가는 프로세스를 갈아끼우는 게 아니라, 콘텐츠 해시가 박힌 불변 파일 묶음을 통째로 새로 올리는 일이라서, 옛 버전과 새 버전이 잠깐 나란히 살아 있을 수 있거든요.
+
+## 멈출 프로세스가 없어요
+
+서버 배포가 조심스러운 건 같은 자리에서 돌아가는 프로세스를 멈췄다 다시 띄워야 하기 때문이에요. 그 잠깐의 틈에 들어온 요청은 갈 곳이 없죠. 근데 정적 사이트에는 멈출 프로세스가 없어요. 빌드 결과물은 그냥 HTML, JS, CSS, 이미지 같은 파일 묶음이고, 배포는 이 묶음을 서버(보통 CDN)에 올려두는 일이거든요.
+
+여기서 핵심은 파일 이름이에요. [Vite](https://vite.dev)나 [webpack](https://webpack.js.org) 같은 번들러는 프로덕션 빌드에서 파일 내용을 해시로 요약해 이름에 박아요. 콘텐츠가 한 글자라도 바뀌면 해시가 바뀌고, 그러면 파일 이름 자체가 달라지죠.<Cite id="webpack-caching" />
+
+```text
+// 어제 배포
+main.7e2c49a6.js
+
+// 오늘 배포 (코드가 바뀜)
+main.205199ab.js
+```
+
+이름이 다르니까 둘은 서로 다른 파일이에요. 새 배포가 `205199ab` 버전을 올려도 `7e2c49a6` 버전을 지우지 않으면 둘 다 그 자리에 남아 있어요. 옛 페이지를 열어둔 사람은 옛 파일을, 방금 들어온 사람은 새 파일을 받는 거죠. 이름이 겹치지 않으니 덮어쓸 일도 없어요.
+
+여기에 한 겹 더 있어요. [Netlify](https://docs.netlify.com), [Vercel](https://vercel.com) 같은 정적 호스팅은 배포를 원자적(atomic)으로 처리해요. 파일이 전부 업로드되기 전에는 공개 주소에 아무것도 안 바뀌고, 준비가 끝나는 순간 새 버전이 한꺼번에 라이브돼요.<Cite id="netlify-deploys" />
+
+<Callout variant="info">
+"This means deploys are atomic, and your site is never in an inconsistent state while you're uploading a new deploy." - Netlify
+
+업로드 중간에 HTML만 새 거고 JS는 옛 거인 어정쩡한 상태가 안 생긴다는 뜻이에요. 통째로 옛 버전이거나, 통째로 새 버전이거나 둘 중 하나죠.
+
+</Callout>
+
+CDN(Content Delivery Network), 사용자랑 가까운 곳에서 파일을 대신 내려주는 서버 망인데, 이게 왜 빠른지랑 캐시 계층이 어떻게 생겼는지는 [지난 글](/posts/cdn-speed-and-caching)에서 다뤘어요. 오늘은 그 위에서 배포가 어떻게 안 멈추는지를 볼게요.
+
+## HTML 하나만 빼고 전부 영원히 캐시해요
+
+그러면 사용자 브라우저는 새 배포를 어떻게 알아챌까요? 여기서 캐싱 정책이 두 갈래로 갈려요. 해시가 박힌 파일과 그렇지 않은 HTML이 정반대 정책을 받거든요.
+
+해시 파일은 이름이 내용을 보증하니까 영원히 캐시해도 안전해요. 그래서 `Cache-Control: public, max-age=31536000`, 1년짜리 캐시에 다시는 안 물어보는 `immutable`까지 붙여요.<Cite id="web-dev-http-cache" /> 내용이 바뀌면 어차피 이름이 바뀌어서 새 파일로 받게 되니까요.
+
+반대로 `index.html`은 이름이 고정이에요. 항상 같은 주소인데 안에서 가리키는 해시 파일 이름은 배포마다 바뀌죠. 그래서 HTML은 캐시하면 안 돼요.<Cite id="vite-build" />
+
+<Callout variant="warning">
+"make sure to set Cache-Control: no-cache on the HTML file, otherwise the old assets will be still referenced." - Vite
+
+HTML을 캐시해버리면 브라우저가 옛 HTML을 들고 있으면서 거기 적힌 옛 해시 파일만 계속 찾아요. 새 파일이 올라와도 영영 안 보게 되는 거죠.
+
+</Callout>
+
+`no-cache`는 캐시하지 말라는 게 아니라, 쓰기 전에 매번 서버에 이거 안 바뀌었냐고 물어보라는 뜻이에요. 안 바뀌었으면 304로 가볍게 넘어가고, 바뀌었으면 새 HTML을 받아요.<Cite id="mdn-http-caching" /> 그 새 HTML이 새 해시 파일들을 가리키고, 브라우저는 처음 보는 이름이니까 새로 받아오죠.
+
+그래서 프론트 배포는 받아오는 리소스 정보만 살짝 고치는 게 아니에요. 거의 매번 이름이 다른 새 파일 묶음을 통째로 새로 올리고, 입구 역할을 하는 HTML 한 장만 바꿔 끼우는 쪽에 가까워요.
+
+## 서버 무중단 배포와 같은 걸까요
+
+큰 그림은 닮았어요. 서버의 무중단 배포도 결국 옛 버전을 살려둔 채 새 버전을 띄우고, 준비가 되면 넘긴다는 발상이거든요. blue-green 배포는 옛 환경(blue)을 그대로 둔 채 새 환경(green)을 따로 띄워두고 트래픽을 한 번에 넘겨요. rolling 배포는 인스턴스를 몇 대씩 새 버전으로 교체하면서 굴리고요.
+
+다른 건 무엇을 교체하느냐예요. 서버는 요청을 받아 매번 응답을 만들어내는 살아 있는 프로세스라, 옛 인스턴스와 새 인스턴스를 동시에 띄워두고 트래픽을 저울질해야 해요. 정적 배포에는 그런 프로세스가 없어요. 교체 단위가 그냥 안 변하는 파일 스냅샷이라, 새 스냅샷을 통째로 올려두고 입구만 새 쪽으로 바꾸면 끝이에요. 옛 스냅샷은 지우기 전까지 알아서 그 자리에 남고요.
+
+<FlowDiagram
+  height={300}
+  caption="입구(HTML)만 새 스냅샷을 가리키게 바꾸면, 옛 스냅샷은 지우기 전까지 그대로 남아요"
+  nodes={[
+    {
+      id: "html",
+      title: "index.html",
+      description: "no-cache, 매번 재검증",
+      x: 0,
+      y: 90,
+      kind: "accent",
+    },
+    {
+      id: "new",
+      title: "새 스냅샷",
+      description: "해시 파일, immutable",
+      x: 320,
+      y: 0,
+      kind: "success",
+    },
+    {
+      id: "old",
+      title: "옛 스냅샷",
+      description: "지우기 전까지 남아 있음",
+      x: 320,
+      y: 180,
+    },
+  ]}
+  edges={[
+    { from: "html", to: "new", label: "새 배포 후 가리킴", animated: true },
+    { from: "html", to: "old", label: "옛 페이지가 참조 중" },
+  ]}
+/>
+
+여기에 변수가 하나 더 있어요. 같은 주소를 쳐도 사용자마다 다른 CDN 거점이 응답할 수 있어서, 새 배포가 모든 거점에 퍼지는 데도 아주 잠깐 시차가 생겨요. 한 도메인이 어디서 갈라지는지는 [따로 정리한 글](/posts/frontend-load-balancing-layers)에서 다뤘어요.
+
+## 보던 중에 새 배포가 뜨면요
+
+그럼 사용자가 사이트를 한참 보던 중에 새 배포가 일어나면 어떻게 될까요? 이미 떠 있는 페이지는 멀쩡해요. 옛 HTML과 옛 JS를 이미 받아서 메모리에 들고 있으니까요. 문제는 그 다음이에요.
+
+요즘 앱은 화면을 옮길 때 필요한 코드 조각을 그때그때 불러와요. 이걸 코드 스플리팅이라고 하고, 그 조각 하나를 청크(chunk)라고 불러요. 사용자가 메뉴를 누르는 순간, 옛 HTML은 옛 해시가 박힌 청크를 요청해요. 근데 새 배포가 옛 스냅샷을 이미 지워버렸다면 어떻게 될까요?
+
+<Callout variant="warning">
+"When a new deployment occurs, the hosting service may delete the assets from previous deployments." - Vite
+
+새로 배포하면 호스팅이 옛 배포 파일을 지울 수 있어요. 그 직전에 페이지를 열어둔 사람이 옛 청크를 요청하면, 그 파일은 이미 사라지고 없는 거죠.
+
+</Callout>
+
+이때 동적 import가 실패하면서 chunk load error가 나요. 멀쩡하던 화면이 갑자기 깨진 것처럼 보이죠. 저도 배포 직후에 이 에러 제보를 받고 당황한 적이 있는데, 범인은 코드가 아니라 타이밍이었어요. 다행히 번들러가 이걸 잡을 고리를 줘요. Vite는 청크 로딩이 실패하면 `vite:preloadError` 이벤트를 쏘는데, 여기서 페이지를 한 번 새로고침하면 최신 HTML과 새 청크를 받아 자연스럽게 넘어가요.
+
+```js
+// 새 배포로 옛 청크가 사라져 로딩이 실패하면,
+// 최신 HTML을 다시 받아오게 한 번 새로고침해요.
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  window.location.reload();
+});
+```
+
+webpack이나 Create React App 계열에서는 같은 상황이 `ChunkLoadError`(`Loading chunk N failed`)로 표면화돼요. 이름만 다를 뿐 원인은 같아요. 옛 페이지가 사라진 옛 청크를 찾는 거죠. 새로고침이 좀 거칠다 싶으면, 옛 배포 청크를 바로 지우지 않고 며칠 더 남겨두는 방법도 있어요. 그동안 옛 페이지를 들고 있던 사용자도 부드럽게 새 버전으로 넘어가거든요.
+
+## 정리하면
+
+프론트엔드 배포가 안 멈추는 건 마법이 아니에요. 콘텐츠 해시로 파일마다 고유한 이름을 주니까 옛 버전과 새 버전이 충돌 없이 공존하고, HTML 한 장만 입구를 바꿔 끼우면 되니까 교체가 원자적이에요. 서버 무중단 배포랑 발상은 같지만, 살아 있는 프로세스 대신 안 변하는 파일 스냅샷을 다룬다는 점에서 훨씬 단순하죠.
+
+한 걸음 더 들어가면, 사용자 브라우저에 Service Worker(브라우저에 상주하면서 네트워크 요청을 가로채는 스크립트)가 깔려 있을 때는 이야기가 또 달라져요. 네트워크 앞단에 프록시가 한 겹 더 끼면서, 새 배포가 언제 반영될지를 워커의 생명주기가 다시 정하거든요. 그 동작은 [Service Worker는 네트워크 프록시예요](/posts/service-worker-network-proxy)에서 따로 풀어놨어요.
+
+<References
+  items={[
+    {
+      id: "mdn-http-caching",
+      title: "MDN - HTTP Caching",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching",
+      description: "no-cache 와 immutable 의 차이, 조건부 요청과 304 재검증 흐름",
+    },
+    {
+      id: "vite-build",
+      title: "Vite - Building for Production",
+      href: "https://vite.dev/guide/build",
+      description: "해시 파일명, HTML 의 no-cache 설정, vite:preloadError 로 청크 로딩 실패 처리",
+    },
+    {
+      id: "webpack-caching",
+      title: "webpack - Caching",
+      href: "https://webpack.js.org/guides/caching/",
+      description: "contenthash 로 콘텐츠가 바뀌면 파일명이 바뀌어 캐시가 자동 무효화되는 원리",
+    },
+    {
+      id: "netlify-deploys",
+      title: "Netlify - Deploys overview",
+      href: "https://docs.netlify.com/site-deploys/overview/",
+      description: "atomic deploy 로 사이트가 비일관 상태에 빠지지 않고, 과거 배포로 즉시 롤백되는 구조",
+    },
+    {
+      id: "web-dev-http-cache",
+      title: "web.dev - HTTP cache best practices",
+      href: "https://web.dev/articles/http-cache",
+      description: "핑거프린트가 박힌 자원에 max-age 1년을 권장하는 캐싱 정책 결정 트리",
+    },
+  ]}
+/>
