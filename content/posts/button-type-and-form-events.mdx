@@ -1,0 +1,368 @@
+---
+title: "button의 type을 언제 뭐 쓸까"
+description: "submit, reset, button. 폼 안에서 type 하나로 버튼이 완전히 달라져요."
+date: 2026-07-01
+tags: ["HTML", "폼", "이벤트", "React"]
+published: true
+---
+
+삭제 버튼 하나를 폼 안에 넣었을 뿐인데, 누르면 페이지가 새로고침되면서 입력하던 내용이 다 날아가요. 저도 처음엔 자바스크립트 어딘가에 버그가 있나 한참을 뒤졌거든요. 근데 범인은 `button` 의 `type` 이었어요. 폼 안의 `button` 은 `type` 을 안 정하면 제출 버튼으로 동작해서, 목적에 맞는 `type` 과 이벤트 핸들러를 골라야 의도대로 움직여요.
+
+## 폼 안 버튼은 왜 마음대로 새로고침될까
+
+`button` 의 `type` 은 세 가지예요. `submit` 은 폼을 제출하고, `reset` 은 폼을 초기값으로 되돌리고, `button` 은 아무 기본 동작이 없어요. 문제는 폼 안에서 `type` 을 지정하지 않으면 그 값이 `submit` 으로 정해진다는 거예요.<Cite id="mdn-button" /> 그러니까 별생각 없이 버튼을 만들면, 클릭할 때마다 폼이 제출되면서 페이지가 통째로 다시 로드돼요.
+
+<CodePlayground
+  code={`function ButtonTypes() {
+    const [log, setLog] = React.useState([]);
+    const add = (msg) => setLog((prev) => [msg, ...prev].slice(0, 4));
+
+    return (
+      <div className="wrap">
+        <form
+          className="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            add("submit 이벤트 발생 (기본 동작은 막아둠)");
+          }}
+          onReset={() => add("reset 이벤트 발생")}
+        >
+          <input className="field" defaultValue="이름" />
+          <div className="row">
+            <button className="btn">type 없음</button>
+            <button className="btn" type="reset">
+              type=reset
+            </button>
+            <button
+              className="btn"
+              type="button"
+              onClick={() => add("onClick만 실행 (제출 안 함)")}
+            >
+              type=button
+            </button>
+          </div>
+        </form>
+        <ul className="log">
+          {log.length === 0 ? (
+            <li className="muted">버튼을 눌러보세요</li>
+          ) : (
+            log.map((m, i) => <li key={i}>{m}</li>)
+          )}
+        </ul>
+      </div>
+    );
+  }`}
+  css={`.wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .form {
+    padding: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+  }
+
+  .field {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    margin-bottom: 10px;
+  }
+
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .btn {
+    padding: 6px 12px;
+    border: 1px solid #374151;
+    background: #111827;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: #374151;
+  }
+
+  .muted {
+    color: #9ca3af;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+위 데모에서 `type 없음` 버튼은 눌러보면 submit 이벤트가 뜨죠. 반면 `type=button` 은 우리가 붙인 `onClick` 만 실행하고 폼은 건드리지 않아요. MDN 도 이 점을 짚어요.
+
+<Callout variant="warning">
+"If your buttons are not for submitting form data to a server, be sure to set their type attribute to button." - MDN
+
+서버로 폼을 보내는 버튼이 아니면 `type="button"` 을 꼭 붙이라는 거예요. 안 그러면 존재하지도 않는 응답을 부르려다 지금 화면 상태까지 날려버리거든요.
+
+</Callout>
+
+엄밀히 말하면 최신 명세는 기본값을 곧바로 `submit` 이라 부르지 않고 `Auto` 상태로 정의해요. 이 상태가 몇 가지 조건을 만족하면 제출 버튼으로 취급되는 거죠.<Cite id="whatwg-button" /> 실무에서 외울 건 하나예요. 폼 안의 일반 버튼은 누르면 제출돼요.
+
+## submit은 클릭이 아니라 제출에 반응해요
+
+그럼 제출 로직은 어디에 둬야 할까요. 버튼의 `onClick` 이 아니라 폼의 `onSubmit` 이에요. submit 이벤트는 제출 버튼을 클릭할 때만 뜨는 게 아니라, 입력창에서 Enter 를 눌러도 발동하거든요.<Cite id="mdn-submit-event" /> 로직을 버튼 클릭에 걸어두면 Enter 로 제출하는 사용자를 놓쳐요.
+
+<CodePlayground
+  code={`function EnterSubmits() {
+    const [count, setCount] = React.useState(0);
+    const [text, setText] = React.useState("");
+
+    return (
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setCount((c) => c + 1);
+        }}
+      >
+        <p className="hint">
+          입력창에 뭔가 쓰고, 버튼은 건드리지 말고 Enter만 눌러보세요.
+        </p>
+        <input
+          className="field"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="여기서 Enter"
+        />
+        <button className="btn" type="submit">
+          전송
+        </button>
+        <p className="echo">제출된 횟수: {count}</p>
+      </form>
+    );
+  }`}
+  css={`.form {
+    padding: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+  }
+
+  .hint {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: #6b7280;
+  }
+
+  .field {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+  }
+
+  .btn {
+    margin-top: 8px;
+    padding: 6px 12px;
+    border: 1px solid #374151;
+    background: #111827;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .echo {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #374151;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+제출 횟수가 올라가죠. `onSubmit` 핸들러 안에서는 `preventDefault()` 로 브라우저의 기본 제출, 즉 페이지 이동을 막아요. 요즘처럼 자바스크립트로 폼을 다루는 앱에서는 이 한 줄이 새로고침을 막아주거든요. 참고로 핸들러가 받는 이벤트 객체의 `target` 과 `currentTarget` 이 왜 다른지는 [따로 정리한 글](/posts/event-target-vs-currenttarget-propagation)에서 다뤘어요.
+
+한 가지 함정이 더 있어요. 스크립트에서 폼을 직접 보내려고 `form.submit()` 을 부르면, 정작 submit 이벤트가 안 떠요.
+
+<Callout variant="info">
+"the event is not sent to the form when a script calls the form.submit() method directly." - MDN
+
+`form.submit()` 은 검증도 `onSubmit` 훅도 다 건너뛰고 곧장 보내버려요. 이벤트를 정상적으로 태우고 싶으면 `requestSubmit()` 을 쓰세요. 이 메서드는 사용자가 제출 버튼을 누른 것처럼 동작하거든요.
+
+</Callout>
+
+## type=reset은 비우는 게 아니라 되돌려요
+
+`reset` 버튼도 오해가 많아요. 폼을 텅 비우는 게 아니라, 각 필드를 처음 지정된 초기값으로 되돌려요.<Cite id="mdn-form-reset" /> `defaultValue` 가 있으면 그 값으로 돌아가는 거지, 무조건 빈칸이 되는 게 아니에요.
+
+여기서 제어 컴포넌트와 비제어 컴포넌트의 차이가 갈려요. 이 둘의 구분은 [지난 글](/posts/react-controlled-vs-uncontrolled)에서 자세히 다뤘는데, 리셋 동작에서 특히 도드라져요. 비제어 입력은 값이 DOM 에 있으니 네이티브 리셋이 그대로 먹혀요. 근데 제어 입력은 값이 React state 에 있어서, `type="reset"` 이 DOM 을 되돌려도 state 가 그대로면 화면이 안 바뀌어요.
+
+<CodePlayground
+  code={`function ResetBehavior() {
+    const [controlled, setControlled] = React.useState("리액트가 관리");
+
+    return (
+      <div className="compare">
+        <form className="col">
+          <h4>비제어</h4>
+          <input className="field" defaultValue="초기값" />
+          <button className="btn" type="reset">
+            reset
+          </button>
+          <p className="echo">고쳐 쓰고 reset을 누르면 "초기값"으로 돌아가요</p>
+        </form>
+        <form className="col">
+          <h4>제어</h4>
+          <input
+            className="field"
+            value={controlled}
+            onChange={(e) => setControlled(e.target.value)}
+          />
+          <button className="btn" type="reset">
+            reset
+          </button>
+          <p className="echo">
+            고쳐 써도 reset은 안 먹혀요. state가 그대로라서요
+          </p>
+        </form>
+      </div>
+    );
+  }`}
+  css={`.compare {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  .col {
+    min-width: 0;
+    padding: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+  }
+
+  .col h4 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    color: #6b7280;
+  }
+
+  .field {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+  }
+
+  .btn {
+    margin-top: 8px;
+    padding: 4px 10px;
+    border: 1px solid #374151;
+    background: #111827;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .echo {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #374151;
+  }`}
+  template="react"
+  showPreview={true}
+/>
+
+제어 폼에서 초기화가 필요하면 폼의 `onReset` 핸들러 안에서 직접 state 를 되돌려야 해요.<Cite id="mdn-reset-event" /> 네이티브 리셋에만 기대면 아무 일도 안 일어나거든요.
+
+```jsx
+<form onReset={() => setName("")}>
+  <input value={name} onChange={(e) => setName(e.target.value)} />
+  <button type="reset">초기화</button>
+</form>
+```
+
+사실 `reset` 버튼 자체를 잘 안 쓰기도 해요. 사용자가 실수로 눌러서 애써 채운 걸 날리는 사고가 잦거든요. "취소" 같은 버튼은 보통 `type="button"` 에 직접 만든 로직을 붙이는 편이에요.
+
+## 그래서 언제 무엇을 쓰나
+
+정리하면 상황별로 손이 가는 조합이 정해져 있어요.
+
+| 상황                        | 권장 조합                                        | 이유                                  |
+| --------------------------- | ------------------------------------------------ | ------------------------------------- |
+| 폼 데이터 전송              | `<form onSubmit>` + `<button type="submit">`     | Enter 제출까지 한 번에 잡혀요         |
+| 폼 안의 일반 액션 (삭제 등) | `<button type="button" onClick>`                 | 실수로 폼이 제출되는 걸 막아요        |
+| 비제어 폼 초기화            | `<button type="reset">`                          | 입력을 `defaultValue` 로 되돌려요     |
+| 제어 폼 초기화              | `type="button"` + state 리셋 함수                | 네이티브 리셋은 state 를 못 되돌려요  |
+| 폼 밖 단순 버튼             | `<button type="button">`                         | 폼 밖에서는 기본이 `button` 이라 안전 |
+
+`button` 은 겉보기엔 하나지만, `type` 을 뭘로 두느냐가 폼 안에서 완전히 다른 버튼을 만들어요. 제출이 목적이면 `submit` 을 두고 로직은 폼의 `onSubmit` 에 얹으면 돼요. 제출이 아닌 액션은 `type="button"` 에 `onClick` 을 붙이고요. 초기화는 위 표대로 제어냐 비제어냐만 가르면 끝이에요. 이 갈래가 손에 익으면 "왜 새로고침되지" 같은 질문은 다시 안 하게 돼요.
+
+<FAQ
+  items={[
+    {
+      question: "type=button 을 매번 붙이는 게 번거로운데 꼭 필요한가요?",
+      answer:
+        "폼 안에 있는 버튼일 때만 필요해요. 폼 밖의 버튼은 기본 type이 button이라 안 붙여도 제출될 일이 없어요. 폼 안에서 제출이 목적이 아닌 버튼에만 붙이면 됩니다.",
+    },
+    {
+      question: "onClick 으로 폼을 제출하면 안 되나요?",
+      answer:
+        "동작은 해요. 다만 입력창에서 Enter로 제출하는 사용자를 놓쳐요. submit 이벤트는 버튼 클릭과 Enter 양쪽에서 발동하니까, 제출 로직은 버튼의 onClick이 아니라 폼의 onSubmit에 두는 게 안전해요.",
+    },
+  ]}
+/>
+
+<References
+  items={[
+    {
+      id: "mdn-button",
+      title: "MDN - The Button element `<button>`",
+      href: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/button",
+      description: "폼 안 button의 기본 type이 submit이라는 점과 type 세 값의 동작",
+    },
+    {
+      id: "mdn-submit-event",
+      title: "MDN - HTMLFormElement: submit event",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement/submit_event",
+      description: "Enter로도 submit이 발동하는 조건과 submit() vs requestSubmit() 차이",
+    },
+    {
+      id: "mdn-form-reset",
+      title: "MDN - HTMLFormElement: reset() method",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement/reset",
+      description: "reset이 빈칸이 아니라 초기 기본값으로 복원한다는 동작 정의",
+    },
+    {
+      id: "mdn-reset-event",
+      title: "MDN - HTMLFormElement: reset event",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/HTMLFormElement/reset_event",
+      description: "onReset 핸들러가 발동하는 시점",
+    },
+    {
+      id: "mdn-htmlbuttonelement",
+      title: "MDN - HTMLButtonElement",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/HTMLButtonElement",
+      description: "type 프로퍼티의 기본값과 formAction 등 제출 override 속성",
+    },
+    {
+      id: "whatwg-button",
+      title: "WHATWG HTML Standard - The button element",
+      href: "https://html.spec.whatwg.org/multipage/form-elements.html#the-button-element",
+      description: "기본값이 Auto state로 정의되고 조건부로 제출 버튼이 되는 명세",
+    },
+  ]}
+/>
