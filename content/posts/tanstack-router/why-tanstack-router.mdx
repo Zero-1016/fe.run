@@ -1,0 +1,109 @@
+---
+title: "왜 TanStack Router인가"
+description: "라우팅은 이미 풀린 문제 같은데 왜 또 만들었을까요. 세 자리를 짚어봐요."
+date: 2026-07-18
+tags: ["React", "TanStack Router", "라우팅", "타입 안전성", "TypeScript"]
+series: "TanStack Router 입문"
+seriesOrder: 1
+published: true
+---
+
+React 프로젝트에 [React Router](https://reactrouter.com) 를 붙여서 페이지를 잘 나눠 쓰고 있었어요. 라우팅은 오래전에 풀린 문제 같았거든요. 그런데 [TanStack Router](https://tanstack.com/router) 라는 이름이 자꾸 눈에 밟혔죠. 이 라우터는 라우팅이 그동안 손으로 메우던 세 자리, 타입과 URL 상태와 데이터 로딩을 컴파일 타임과 URL 안쪽으로 끌어올린 라우터예요.
+
+## 라우팅은 이미 풀린 문제 아니었나
+
+TanStack Router 공식 문서를 열면 제일 먼저 나오는 게 자기 자랑이 아니라 "다른 라우터에서 기대하던 거, 우리도 다 해요" 라는 목록이에요. 중첩 라우트, 레이아웃 라우트, 파일 기반 라우팅, 병렬 데이터 로딩, prefetch, path params, 에러 경계, SSR(서버 사이드 렌더링), route masking 까지요.<Cite id="tsr-overview" /> 여기까지는 React Router 로도 하던 일이죠.
+
+포인트는 그 위에 얹은 것들이에요. 공식 Overview 는 기존 라우터의 눈높이를 다 맞춘 다음 그 위에 새 기능을 쌓았다고 설명하거든요. 그 새 기능들이 결국 세 자리로 모여요. 타입을 누가 붙이느냐, URL 쿼리를 무엇으로 보느냐, 데이터 로딩을 어디까지 책임지느냐.
+
+이 세 자리가 기존 라우터와 갈리는 지점이에요. 하나씩 보죠.
+
+## 타입을 손으로 붙이느냐, 추론되느냐
+
+React Router 로 `/posts/:postId` 같은 라우트를 만들면, 컴포넌트 안에서 `postId` 를 꺼낼 때 그게 무슨 타입인지 라우터는 몰라요. `useParams()` 가 돌려주는 건 느슨한 객체라 개발자가 직접 타입을 붙여줘야 하죠. loader 가 돌려준 데이터도 마찬가지고요. 경로 문자열에 오타를 내도 런타임에 가서야 404 를 보고 알아요.
+
+[Next.js](https://nextjs.org) 의 파일 기반 라우팅은 한 걸음 나아갔지만, TanStack Router 문서는 그 타입 안전을 이렇게 평가해요.
+
+<Callout variant="info">
+"...superficial type safety, primarily offering IDE link hints rather than robust compile-time checks." - TanStack Router 문서
+
+파일 경로로 링크를 걸 때 에디터가 힌트를 주는 정도지, 컴파일 타임에 딱 잡아주는 수준은 아니라는 얘기예요. 링크 목적지가 틀려도 빌드는 통과할 수 있고요.
+
+</Callout>
+
+TanStack Router 는 이 자리를 다르게 잡아요. 라우트를 정의하면 그 정보가 타입으로 추론되고, 앱 어디서든 그 타입을 물려받죠.<Cite id="tsr-guide" /> 이걸 켜는 장치가 딱 한 줄인데, 라우터 인스턴스를 만든 뒤 그 타입을 모듈 전역에 등록하는 선언이에요.
+
+```tsx
+import { createRouter } from "@tanstack/react-router";
+import { routeTree } from "./routeTree.gen";
+
+const router = createRouter({ routeTree });
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}
+```
+
+이 등록 한 줄이 있으면 `Link` 의 목적지, `useParams` 의 반환, loader 의 데이터가 전부 그 라우트 정의에서 자동으로 추론돼요. 손으로 제네릭을 붙일 일이 없어지죠.
+
+<FlowDiagram
+  height={340}
+  caption="Register 등록 한 줄이 켜는 타입 추론의 흐름"
+  nodes={[
+    { id: "def", title: "라우트 정의", description: "경로와 loader를 한자리에", x: 0, y: 120, kind: "accent" },
+    { id: "reg", title: "Register 등록", description: "라우터 타입을 전역에 심기", x: 300, y: 120 },
+    { id: "link", title: "Link 목적지", description: "잘못된 to는 컴파일 에러", x: 620, y: 0 },
+    { id: "params", title: "useParams", description: "postId가 자동으로 string", x: 620, y: 120 },
+    { id: "loader", title: "useLoaderData", description: "loader 반환 타입 그대로", x: 620, y: 240 },
+  ]}
+  edges={[
+    { from: "def", to: "reg", label: "typeof router", animated: true },
+    { from: "reg", to: "link" },
+    { from: "reg", to: "params" },
+    { from: "reg", to: "loader" },
+  ]}
+/>
+
+## search params, 문자열인가 상태인가
+
+주소창 뒤에 붙는 `?page=2&sort=recent` 같은 쿼리 스트링, 보통은 문자열로 대충 읽고 `Number(page)` 로 변환해서 쓰죠. TanStack Router 는 이 쿼리를 완전히 다르게 봐요. Overview 에 이런 표현이 있어요.
+
+<Callout variant="info">
+"...search params are the most powerful state manager in your entire application." - TanStack Router Overview
+
+URL 쿼리가 앱에서 제일 강한 상태 저장소라는 거예요. 전역이고, 직렬화돼 있고, 북마크하거나 링크로 공유하면 그대로 복원되니까요.
+
+</Callout>
+
+그래서 이 라우터는 search params 를 JSON 으로 파싱하고, 스키마로 검증하고, 타입까지 붙여줘요.<Cite id="tsr-overview" /> `?page=2` 가 문자열 "2" 가 아니라 검증된 숫자 `2` 로 컴포넌트에 도착하죠. `useState` 를 URL 안에 둔 느낌이라는 게 이 설계의 자기 설명이고요. 어떻게 검증 스키마를 붙이는지는 2편에서 직접 해봐요.
+
+## 데이터 로딩의 중간값
+
+라우터가 데이터 로딩을 어디까지 책임질지도 선택이에요. 초기 React Router 는 데이터 로딩에 손을 대지 않아서 컴포넌트가 마운트된 뒤 각자 fetch 했죠. 반대로 캐시를 지나치게 자주 무효화해서 같은 데이터를 계속 다시 받아오는 낭비도 있고요. TanStack Router 는 그 사이를 노려요. 합리적인 기본값을 가진 가벼운 캐시를 loader 에 내장하되, 필요하면 외부 캐시로 넘길 수 있게 열어뒀어요.<Cite id="tsr-overview" />
+
+내장 캐시는 SWR 방식이에요. stale-while-revalidate, 오래된 값을 일단 보여주고 뒤에서 조용히 새로 받아오는 방식이죠. 라우트마다 `staleTime` 으로 얼마나 오래 신선하게 볼지, `gcTime` 으로 언제 버릴지 조절해요. 더 복잡한 서버 상태는 [TanStack Query](https://tanstack.com/query) 같은 전용 캐시에 맡기고 라우터는 로딩 타이밍만 잡게 할 수도 있고요. [두 라이브러리가 캐싱을 보는 톤이 어떻게 다른지](/posts/swr-vs-tanstack-query-philosophy)는 따로 정리해둔 게 있어요.
+
+## 세 자리를 기억하면 나머지는 따라와요
+
+정리하면 TanStack Router 가 기존 라우터에서 바꾼 건 화려한 신기능이 아니라 세 자리의 무게 중심이에요. 타입은 손으로 붙이는 대신 라우트 정의에서 추론되고, URL 쿼리는 문자열이 아니라 검증된 상태가 되고, 데이터 로딩은 방치도 과잉도 아닌 중간값을 기본으로 잡죠.
+
+이 세 자리가 코드에서 실제로 어떻게 생겼는지는 다음 편에서 손으로 만들어봐요. 설치 명령 한 줄부터 타입 안전 `Link`, search params 검증, loader 까지 최소 코드로 훑을게요.
+
+<References
+  items={[
+    {
+      id: "tsr-overview",
+      title: "TanStack Router - Overview",
+      href: "https://tanstack.com/router/latest/docs/framework/react/overview",
+      description: "기존 라우터 대비 포지셔닝, 타입 추론, search params 상태관 선언, 내장 캐시 철학",
+    },
+    {
+      id: "tsr-guide",
+      title: "TanStack Router - 공식 문서 (마이그레이션, Next.js 비교)",
+      href: "https://tanstack.com/router/latest/docs/framework/react/routing/code-based-routing",
+      description: "React Router 수동 타이핑과 자동 추론 차이, Next.js 파일 라우팅의 표면적 타입 안전 평가",
+    },
+  ]}
+/>
