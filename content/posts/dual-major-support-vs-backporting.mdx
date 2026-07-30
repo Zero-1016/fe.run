@@ -1,0 +1,233 @@
+---
+title: "둘 다 지원한다고 적으면 되나"
+description: "peerDependencies에 두 메이저를 적는 건 되는데, 그게 지원은 아니에요."
+date: 2026-07-31
+tags: ["디자인 시스템", "npm", "semver", "패키지 설계", "프론트엔드 아키텍처"]
+published: true
+---
+
+디자인 시스템을 v2로 올리면서 토큰 참조 방식이 바뀌고 컴포넌트 Props도 몇 개 갈렸어요. 변경점을 정리해서 공유했더니 팀에서 답이 왔죠. "저희 화면은 아직 v1이라, UI 패키지에서 둘 다 지원해주세요." `peerDependencies` 에 `^1.0.0 || ^2.0.0` 한 줄이면 될 것 같지만, 그 한 줄은 지원하겠다는 선언이지 지원되는 상태를 만들어주진 않아요.
+
+## 두 메이저를 한 줄에 담을 수는 있어요
+
+먼저 인정하고 시작할게요. 문법적으로는 됩니다. [npm](https://docs.npmjs.com) 의 버전 범위 표기에는 `range1 || range2` 형태가 정식으로 있어서, 둘 중 하나만 만족하면 통과하거든요.<Cite id="npm-package-json" /> `peerDependencies` 는 우리 패키지가 직접 `import` 하지 않고 호스트 앱이 깔아둔 걸 빌려 쓰는 관계를 표현하는 자리고요. npm 6까지는 경고만 냈지만 npm 7부터는 기본으로 자동 설치까지 해줘요.
+
+문제는 그 표기가 무엇을 약속하는 표기인가예요. 여기서 근거가 되는 건 semver, 그러니까 [Semantic Versioning](https://semver.org/) 규약이에요. 메이저 숫자는 공개 API에 호환을 깨는 변경이 하나라도 들어가면 반드시 올려야 하는 자리라고 못 박혀 있죠.<Cite id="semver-spec" />
+
+<Callout variant="info">
+"Assuming the host complies with semver, only changes in the host package's major version will break your plugin." - npm 공식 문서
+
+호스트가 semver를 지킨다면 우리를 깨뜨리는 건 메이저 변경뿐이라는 뜻이에요. 뒤집으면, 메이저를 하나 더 받는다는 건 우리를 깨뜨릴 수 있는 표면을 하나 더 떠안는 일이고요.
+
+</Callout>
+
+그래서 npm 문서가 "범위를 좁게 잠그지 말라"고 할 때 그건 `^1.0` 이나 `1.x` 처럼 한 메이저 안에서 넓히라는 얘기예요. 메이저 두 개를 나란히 얹으라는 권장이 아니에요. `||` 는 합법이지만, npm이 권장 패턴으로 제시한 적은 한 번도 없어요.
+
+## devDependencies 에서 이미 한쪽이 정해져요
+
+제가 실제로 막힌 자리는 선언이 아니라 개발 환경이었어요. `peerDependencies` 는 소비자 쪽에서 설치되는 거라 우리 저장소의 `node_modules` 에는 아무것도 들어오지 않거든요. 스토리북을 띄우거나 테스트를 돌리려면 결국 `devDependencies` 에 실물 하나를 골라 넣어야 해요.
+
+"peer에 넣었으면 dev에도 넣어라"는 규칙을 문서에서 찾아봤는데, npm에도 [pnpm](https://pnpm.io) 에도 그런 문장은 없더라고요.<Cite id="pnpm-package-json" /> 규칙이 아니라 구멍이라서 그래요. peer 선언은 설치를 유발하지 않고, dev 의존성은 배포 산출물에 포함되지 않으니까, 그 사이의 빈자리를 개발자가 직접 메우게 되는 거죠.
+
+```json
+{
+  "peerDependencies": {
+    "@team/design-system": "^1.0.0 || ^2.0.0"
+  },
+  "devDependencies": {
+    "@team/design-system": "^2.0.0"
+  }
+}
+```
+
+이 파일을 보면 문제가 바로 보여요. 선언은 두 개인데 실제로 빌드되고 테스트되는 경로는 v2 하나뿐이에요. v1 사용자는 우리가 한 번도 실행해보지 않은 코드를 받게 되고요. 지원한다고 적어두고 검증은 절반만 하는 상태인데, 이게 제일 위험한 조합이에요. 깨져도 우리가 먼저 알 방법이 없거든요.
+
+정말로 둘 다 지원하려면 검증도 둘이어야 해요. 최소한 이 정도는 있어야 선언이 사실이 됩니다.
+
+```yaml
+# .github/workflows/test.yml
+strategy:
+  matrix:
+    ds: ["1", "2"]
+steps:
+  - run: pnpm add -D @team/design-system@^${{ matrix.ds }}
+  - run: pnpm test
+```
+
+CI 시간이 두 배가 되고, 어느 한쪽만 깨졌을 때 고치는 사람도 우리예요. 여기까지가 최소 비용이에요.
+
+## 선언은 계약이지 강제가 아니에요
+
+여기서 한 번 더 뒤집히는 지점이 있어요. `^1.0.0 || ^2.0.0` 을 적어두면 범위 밖 버전은 안 들어올 거라고 기대하게 되는데, 실제 설치 동작은 그렇지 않아요.
+
+<Callout variant="warning">
+"conflicting peerDependencies deep in the dependency graph will be resolved using the nearest non-peer dependency specification, even if doing so will result in some packages receiving a peer dependency outside the range set in their package's peerDependencies object." - npm 공식 문서
+
+의존성 그래프 깊은 곳에서 peer가 충돌하면, npm은 가장 가까운 non-peer 선언을 기준으로 정리해버려요. 그 결과 우리가 적어둔 범위 밖 버전이 우리에게 주입될 수 있고, 그때 나오는 건 에러가 아니라 경고예요.
+
+</Callout>
+
+즉 peer 범위는 검증 장치라기보다 문서에 가까워요.<Cite id="npm-install" /> 정말 막고 싶으면 소비자 쪽에서 `--strict-peer-deps` 를 켜야 하는데, 그건 우리가 결정할 수 있는 영역이 아니죠.
+
+"그럼 두 버전을 나란히 깔면 되지 않나요?"라는 반론도 나올 만해요. `npm i ds1@npm:@team/design-system@1` 같은 alias 설치는 공식 문서에 있는 방법이고, 같은 패키지의 여러 버전을 나란히 두는 게 첫 번째 용도로 명시돼 있기도 하고요. 다만 문서가 한계도 같이 적어뒀어요. alias는 내 프로젝트에만 적용되고, 의존성 트리 안쪽에 있는 다른 패키지들의 이름까지 바꾸지는 못해요. 우리 UI 패키지가 실제로 받는 인스턴스는 여전히 하나예요. 게다가 실체가 둘로 갈리면 그때부터는 [타입이 남남이 되는 문제](/posts/pnpm-duplicate-core-instances)가 따라붙어요.
+
+## 토큰과 Props가 갈리면 비용은 코드에 남아요
+
+의존성 선언은 한 줄로 끝나지만 컴포넌트 안은 그렇지 않아요. v1과 v2의 토큰 참조 방식이 다르면, 우리 컴포넌트가 지금 어느 쪽 위에서 도는지를 알아야 스타일을 붙일 수 있거든요. 런타임에 감지하는 코드는 그럴듯해 보이지만 결국 남의 패키지 내부 구조에 기대는 일이라 다음 마이너 릴리스에 조용히 깨져요.
+
+Props가 갈리면 타입도 두 벌이 돼요. 유니온으로 받아두면 선언은 통과하지만 사용처에서 좁히기가 번거로워지고, 그 번거로움은 UI 패키지를 쓰는 팀 전체로 퍼지죠. 토큰이 왜 시스템의 축인지는 [디자인 시스템의 세 축](/posts/team-design-system-guide)에서 정리한 적이 있는데, 축이 바뀌었다는 건 컴포넌트 한두 개가 아니라 그 위에 얹힌 전부가 바뀌었다는 뜻이에요.
+
+이 지점에서 그나마 나은 선택이 어댑터 계층이에요. 분기를 컴포넌트마다 흩뿌리지 않고, v1 시절의 API 모양을 v2 위에 얹어주는 얇은 층을 한 군데 두는 방식이죠. 분기가 한 파일에 모이니까 나중에 걷어내기도 쉬워요. 대신 어댑터도 우리가 관리하는 코드고, 언제 걷을지를 같이 정하지 않으면 그 층이 영구 지층이 됩니다. semver 규약도 기능을 없애기 전에 deprecation을 알리는 마이너 릴리스를 한 번은 두라고 권하는데, 핵심은 예고를 하되 끝을 정해두라는 쪽이에요.
+
+## 프레임워크들은 버전이 아니라 시간으로 나눠요
+
+그러면 다른 곳은 어떻게 하고 있을까요. 재밌는 건 두 메이저를 한 라인에서 동시에 떠받치는 곳을 찾기가 어렵다는 거예요. 대신 라인을 나누고 기간을 못 박아요.
+
+[Node.js](https://nodejs.org) 는 새 메이저를 Current 상태로 6개월 두는데, 문서에 그 기간의 목적이 적혀 있어요. 라이브러리 저자들이 새 메이저 지원을 붙일 시간을 주려는 거예요. 이후 짝수 메이저는 LTS, 그러니까 장기 지원 라인으로 넘어가서 치명적인 버그 수정을 총 30개월까지 받고요.<Cite id="nodejs-releases" />
+
+[Angular](https://angular.dev) 는 규칙을 더 촘촘하게 적어뒀어요. 메이저당 정기 지원 12개월과 LTS 12개월로 나누고, LTS 라인에 어떤 수정을 받아줄지를 세 가지로 한정해요. 새로 발견된 보안 취약점, LTS 시작 이후 생긴 회귀, 서드파티 변경으로 생긴 회귀. 이 셋에 해당하지 않으면 백포팅하지 않는다는 뜻이죠.<Cite id="angular-releases" /> 업그레이드 도구도 한 번에 한 메이저씩만 넘어가게 막아뒀고요.
+
+<FlowDiagram
+  height={380}
+  caption="한 라인에서 두 메이저를 떠안는 구조와 라인을 나누는 구조"
+  nodes={[
+    {
+      id: "ds2",
+      title: "DS v2 릴리스",
+      description: "토큰과 Props 변경",
+      x: 0,
+      y: 130,
+      kind: "accent",
+    },
+    {
+      id: "dual",
+      title: "한 라인 동시 지원",
+      description: "UI 2.x 하나가 둘 다 감당",
+      x: 240,
+      y: 0,
+      kind: "warning",
+    },
+    {
+      id: "cost",
+      title: "분기가 코드에 상주",
+      description: "타입과 테스트가 두 벌",
+      x: 500,
+      y: 0,
+      kind: "warning",
+    },
+    {
+      id: "split",
+      title: "라인 분리",
+      description: "기간과 범위를 명시",
+      x: 240,
+      y: 230,
+      kind: "success",
+    },
+    {
+      id: "maint",
+      title: "UI 1.x 유지보수",
+      description: "정해둔 수정만 백포팅",
+      x: 500,
+      y: 160,
+    },
+    {
+      id: "dev",
+      title: "UI 2.x 개발",
+      description: "새 기능은 여기서만",
+      x: 500,
+      y: 300,
+      kind: "success",
+    },
+  ]}
+  edges={[
+    { from: "ds2", to: "dual", label: "둘 다 지원" },
+    { from: "dual", to: "cost", animated: true },
+    { from: "ds2", to: "split", label: "라인 나누기" },
+    { from: "split", to: "maint" },
+    { from: "split", to: "dev" },
+  ]}
+/>
+
+라인을 나누면 새 기능은 v2 라인에만 들어가고, v1 라인은 미리 정해둔 종류의 수정만 받아요. 검증 대상도 라인마다 하나씩이라 CI가 갈라지지 않고요. 대신 릴리스가 두 갈래가 되니 태그와 브랜치 규칙을 손봐야 하죠. 그마저도 부담이면 유지보수 기간을 짧게 잡고 그 안에 옮겨버리는 쪽이 나을 때가 있어요. 반복적인 API 교체라면 [codemod](/posts/what-is-codemod)로 한 번에 밀어버리는 게 어댑터를 반년 끌고 가는 것보다 싸게 먹히거든요.
+
+## 그래서 팀에 되물어야 할 것
+
+"둘 다 지원해주세요"는 사실 요구사항이 아니라 요약이에요. 저는 이 요청을 그대로 받는 대신 두 가지를 되묻기로 했어요. v1 라인을 언제까지 살릴 것인지, 그동안 무엇을 받고 무엇을 거절할 것인지요. 여기에 답이 나오면 그건 지원이고, 답이 안 나오면 마이그레이션을 무기한 미루는 중인 거예요.
+
+<Callout variant="info">
+**동시 지원을 요청받았을 때 확인할 것**
+
+☐ v1 라인의 종료 날짜가 정해져 있는가<br/>
+☐ v1 라인에 받아줄 수정의 종류가 문서화됐는가<br/>
+☐ CI가 두 버전을 모두 실행하는가<br/>
+☐ 분기 코드가 한 군데(어댑터)에 모여 있는가<br/>
+☐ 어댑터를 걷어내는 시점이 정해져 있는가
+
+</Callout>
+
+숫자가 필요하면 감으로 답하지 말고 재보는 것도 방법이에요. 실제로 몇 개 파일이 영향을 받는지는 [바꾸기 전에 얼마나 바뀔지 재보기](/posts/measuring-migration-impact)에서 다룬 방식으로 셀 수 있고, 그 숫자가 나오면 "동시 지원이냐 한 번에 옮기냐" 대화가 훨씬 짧아져요.
+
+<FAQ
+  items={[
+    {
+      question: "모노레포 안의 내부 패키지도 똑같이 봐야 하나요?",
+      answer:
+        "설치 방식은 달라도 판단은 같아요. pnpm은 peer 값으로 workspace 지정자를 쓸 수 있어서 버전 해소는 편해지지만, 토큰과 Props가 갈린 상태에서 분기 코드가 늘어나는 비용은 그대로 남아요. 오히려 내부 패키지는 소비자가 같은 조직이라 종료 날짜를 합의하기 쉬운 편이에요.",
+    },
+    {
+      question: "peerDependenciesMeta의 optional을 쓰면 해결되나요?",
+      answer:
+        "그건 peer가 없어도 에러나 경고를 내지 않게 만드는 설정이라 다른 문제를 풀어요. 호스트를 아예 안 깐 사용자를 허용하는 용도지, 두 메이저 사이의 동작 차이를 메워주진 않아요.",
+    },
+    {
+      question: "그냥 UI 패키지 메이저를 올려서 v2 전용으로 내면 안 되나요?",
+      answer:
+        "그게 가장 단순한 선택이고, 프레임워크들이 실제로 하는 일에 가까워요. 대신 v1을 쓰는 화면이 남아 있는 동안 그쪽으로 갈 버그 수정 경로를 하나 열어둬야 해요. 그게 유지보수 라인이고요.",
+    },
+  ]}
+/>
+
+<References
+  items={[
+    {
+      id: "npm-package-json",
+      title: "npm Docs - package.json",
+      href: "https://docs.npmjs.com/cli/v11/configuring-npm/package-json",
+      description:
+        "peerDependencies의 목적, npm 7부터의 자동 설치, 버전 범위 문법과 peerDependenciesMeta 확인",
+    },
+    {
+      id: "npm-install",
+      title: "npm Docs - npm install",
+      href: "https://docs.npmjs.com/cli/v11/commands/npm-install",
+      description:
+        "peer 충돌 해소 기본 동작, strict-peer-deps 옵션, alias 설치의 적용 범위 확인",
+    },
+    {
+      id: "semver-spec",
+      title: "Semantic Versioning 2.0.0",
+      href: "https://semver.org/",
+      description: "메이저 버전 증가 조건과 기능 제거 전 deprecation 권고 확인",
+    },
+    {
+      id: "pnpm-package-json",
+      title: "pnpm Docs - package.json",
+      href: "https://pnpm.io/package_json",
+      description:
+        "peerDependencies에 workspace 지정자를 쓰는 방식과 optional peer 동작 확인",
+    },
+    {
+      id: "nodejs-releases",
+      title: "Node.js - Previous Releases",
+      href: "https://nodejs.org/en/about/previous-releases",
+      description:
+        "Current 6개월의 목적과 LTS 30개월 지원 기간, 릴리스 라인 운영 방식 확인",
+    },
+    {
+      id: "angular-releases",
+      title: "Angular - Versioning and releases",
+      href: "https://angular.dev/reference/releases",
+      description: "메이저당 지원 기간과 LTS 백포팅을 허용하는 세 가지 조건 확인",
+    },
+  ]}
+/>
