@@ -31,6 +31,12 @@ blog 스킬 패밀리에서 출처의 권위를 판정할 때 사용하는 도�
 - `doc.rust-lang.org` (Rust)
 - `go.dev` (Go)
 
+### 패키지 매니저
+
+- `pnpm.io` (pnpm)
+- `docs.npmjs.com`, `www.npmjs.com` (npm)
+- `yarnpkg.com`, `classic.yarnpkg.com` (Yarn)
+
 ### 프론트엔드 프레임워크
 
 - `react.dev` (React)

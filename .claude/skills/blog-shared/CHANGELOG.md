@@ -1188,3 +1188,43 @@ FlowDiagram 없으면 grep 가드로 즉시 skip(서버도 안 띄움).
 (`git show HEAD:<경로>`).
 
 ---
+
+## 2026-07-31 03:19
+
+### config/domains.md §DOMAIN-PRIORITY-1
+
+**변경**: "패키지 매니저" 하위 섹션을 신설하고 3개 생태계 도메인 등재.
+
+- `pnpm.io` (pnpm)
+- `docs.npmjs.com`, `www.npmjs.com` (npm)
+- `yarnpkg.com`, `classic.yarnpkg.com` (Yarn)
+
+위치는 "런타임/언어"와 "프론트엔드 프레임워크" 사이. `bun.sh` 는 이미 "런타임/언어"
+에 있어 중복 등재하지 않음.
+
+**이유**: 패키지 매니저 공식 문서 도메인이 하나도 등재돼 있지 않아 §DOMAIN-UNCLASSIFIED
+(자동 4순위) 로 떨어지고 있었음. blog-write 로 `content/posts/pnpm-duplicate-core-instances.mdx`
+를 쓰는 동안 References 11개 중 8개가 `pnpm.io`, 1개가 `docs.npmjs.com` 인데 전부
+1순위 판정에서 제외됨. `www.typescriptlang.org` 2개 덕분에 "1순위 최소 1개" 블로커는
+피했지만, 패키지 매니저 주제 글은 매번 같은 자리에서 걸림. blog-research sub-agent
+2회 모두 같은 지적을 보고함.
+
+**수정 유형**: config/domains.md 수정 (도메인 추가, 완화 방향)
+
+**영향 범위**:
+
+- `blog-research`: 1순위 출처 자동 판정 (자동 반영)
+- `blog-validator`: Phase 4-1 References 1순위 포함 여부 (자동 반영)
+- `blog-topic-suggest`: 후보의 1순위 자료 가능성 추정 (자동 반영)
+- 기존 글: `pnpm.io` 4건 (`pnpm-duplicate-core-instances`,
+  `pnpm-package-extensions-vs-catalog`, `dual-major-support-vs-backporting`,
+  `javascript-package-managers-history`), `docs.npmjs.com` 4건 (앞 3건 + `npm-vs-npx`),
+  `yarnpkg.com` 2건 (`pnpm-package-extensions-vs-catalog`,
+  `javascript-package-managers-history`)
+- 완화 방향이라 재검증 시 새 에러 없음. 기존 4순위 판정이 1순위로 올라갈 뿐
+
+**백업**: `.backups/domains-20260731-031908.md`
+
+**재검증 결과**: 사용자가 "나중에" 선택. 미실행.
+
+---
