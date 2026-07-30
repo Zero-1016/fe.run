@@ -1,0 +1,307 @@
+---
+title: "core가 두 벌이 된 날"
+description: "같은 이름의 패키지라도 실체가 둘이면 TypeScript는 둘을 남남으로 봐요."
+date: 2026-07-31
+tags: ["pnpm", "모노레포", "TypeScript", "semver", "의존성"]
+published: true
+---
+
+모노레포에서 peer dependencies 를 정리하다가 `pnpm-lock.yaml` 을 다시 만들었어요. 애플리케이션 코드는 한 줄도 안 건드렸는데 타입 체크가 무더기로 터지더라고요. 같은 이름의 패키지라도 [pnpm](https://pnpm.io) 이 서로 다른 실체에 링크해 두면, [TypeScript](https://www.typescriptlang.org) 눈에는 이름만 같은 남남인 타입이 돼요.
+
+## 코드는 그대로인데 tsc 만 터졌다
+
+에러 메시지는 처음엔 놀리는 것처럼 보였어요.
+
+```bash
+$ pnpm -w exec tsc --noEmit
+src/theme/apply.ts:14:24 - error TS2345: Argument of type 'ThemeConfig' is not
+assignable to parameter of type 'ThemeConfig'.
+  Two different types with this name exist, but they are unrelated.
+```
+
+같은 이름끼리 안 맞는다는 말이잖아요. 근데 두 번째 줄이 답을 이미 다 말하고 있었어요. 이름이 같은 타입이 두 개 있고 둘은 아무 관계가 없다고요. 타입이 잘못 쓰인 게 아니라, 그 타입을 실어 나르는 패키지가 두 벌이라는 뜻이에요.
+
+설치 트리를 열어보니 정말 그랬어요. 디자인 시스템 라이브러리가 자기 `dependencies` 에 `"@acme/core": "^3.0.3"` 을 적어뒀는데, lockfile 을 재계산하면서 그 캐럿 범위의 최신인 3.28.0 이 새로 잡혔거든요. 서비스 쪽은 여전히 3.0.3 을 보고 있었고요. 한 서비스 안에 core 가 두 벌이 된 거예요.
+
+## 캐럿이 열어둔 문
+
+`^3.0.3` 은 3.0.3 이상이면서 다음 메이저 전까지를 뜻해요. patch 만 받는 `~3.0.3` 과 달리 minor 릴리스까지 전부 수용합니다.<Cite id="npm-semver" /> 그러니까 3.28.0 은 이 범위 안에서 완전히 합법이에요. 라이브러리 저자가 규칙을 어긴 것도 아니고요.
+
+그 열린 범위를 한 지점에 못 박아 두는 게 lockfile, 즉 `pnpm-lock.yaml` 이에요. 설치할 때마다 최신을 다시 뒤지는 대신 지난번에 고른 버전을 그대로 재현하죠. 문제는 lockfile 을 지우거나 manifest 를 건드려서 재계산이 돌면 그 못이 풀린다는 거예요. 그 순간 범위 안 최신이 새로 들어옵니다.
+
+여기서 로컬과 CI 의 결과가 갈려요.<Cite id="pnpm-install" />
+
+<Callout variant="warning">
+"pnpm doesn't generate a lockfile and fails to install if the lockfile is out of sync with the manifest." - pnpm CLI install
+
+lockfile 과 `package.json` 이 어긋났을 때 CI 는 실패로 알려주는데, 로컬은 조용히 lockfile 을 고쳐요. `--frozen-lockfile` 의 기본값이 CI 환경에서는 `true`, 로컬에서는 `false` 라서 그래요.
+
+</Callout>
+
+버전이 어디로 튈지 미리 보고 싶으면 `node_modules` 는 그대로 두고 lockfile 만 다시 계산해 볼 수 있어요.
+
+```bash
+pnpm install --lockfile-only
+git diff pnpm-lock.yaml
+```
+
+## pnpm 에게 두 벌은 정상입니다
+
+pnpm 은 모든 패키지를 `node_modules/.pnpm/<이름>@<버전>/` 아래 실체로 두고, 필요한 곳에는 심볼릭 링크만 걸어요. 이 저장 방식이 어쩌다 나왔는지는 [패키지 매니저가 여럿인 이유](/posts/javascript-package-managers-history)에서 다뤘어요. 여기서 중요한 건 버전마다 디렉토리가 따로 생긴다는 거예요. 3.0.3 과 3.28.0 이 나란히 있어도 pnpm 에게는 지극히 정상이에요.<Cite id="pnpm-node-modules" />
+
+그리고 Node.js 는 모듈을 찾을 때 심볼릭 링크를 무시하고 실제 경로, 즉 realpath 를 기준으로 해석해요. 링크는 껍데기고 어느 실체 디렉토리를 가리키느냐가 곧 그 패키지의 정체가 되는 거죠. 두 벌이 서로 다른 인스턴스로 갈리는 지점이 바로 여기예요.
+
+`peerDependencies` 는 "내가 직접 설치하진 않을 테니 나를 쓰는 쪽이 준비해 달라" 는 선언이에요. pnpm 은 이 자리에 예외를 하나 둡니다.<Cite id="pnpm-peers" />
+
+<Callout variant="info">
+"if `foo@1.0.0` has two peers (`bar@^1` and `baz@^1`) then it might have multiple different sets of dependencies in the same project." - pnpm How peers are resolved
+
+peer 는 나를 쓰는 쪽에서 정해지니까, 같은 버전의 패키지라도 부모가 다르면 딸려오는 의존성 묶음이 달라져요. 그래서 pnpm 은 조합 수만큼 하드링크를 복제하고, 디렉토리 이름에 `foo@1.0.0_bar@1.0.0` 같은 접미사를 붙여서 구분해요.
+
+</Callout>
+
+제가 하필 peer 를 정리하다가 이걸 밟은 게 우연이 아니었어요. peer 선언을 건드리면 이 조합 자체가 바뀌거든요.
+
+<FlowDiagram
+  height={380}
+  caption="이름이 같은 core 가 실체 두 개로 갈리면 타입 체크는 둘을 남남으로 봅니다"
+  nodes={[
+    {
+      id: "app",
+      title: "@acme/dashboard",
+      description: "core ^3.0.3 을 직접 요구",
+      x: 0,
+      y: 0,
+      kind: "accent",
+    },
+    {
+      id: "lib",
+      title: "seed-design",
+      description: "내부에서 core ^3.0.3 을 요구",
+      x: 0,
+      y: 170,
+      kind: "accent",
+    },
+    {
+      id: "old",
+      title: "core@3.0.3",
+      description: ".pnpm 안의 실체 A",
+      x: 420,
+      y: 0,
+      kind: "success",
+    },
+    {
+      id: "new",
+      title: "core@3.28.0",
+      description: ".pnpm 안의 실체 B",
+      x: 420,
+      y: 170,
+      kind: "warning",
+    },
+    {
+      id: "tsc",
+      title: "타입 체크",
+      description: "두 실체를 남남으로 판정",
+      x: 840,
+      y: 85,
+      kind: "error",
+    },
+  ]}
+  edges={[
+    { from: "app", to: "old", label: "lockfile 이 고정" },
+    { from: "lib", to: "new", label: "재계산이 집어온 최신", animated: true },
+    { from: "old", to: "tsc" },
+    { from: "new", to: "tsc" },
+  ]}
+/>
+
+## 두 벌인데 어떤 건 왜 멀쩡할까
+
+주변에 물어보니 core 가 두 벌인 채로도 아무 일 없이 굴러가는 저장소가 있더라고요. 이 차이가 이 문제의 진짜 얼굴이에요.
+
+TypeScript 는 구조적 타이핑이라 이름이나 선언 위치가 아니라 모양으로 호환을 판단해요. 순수 인터페이스만 내보내는 패키지라면 두 벌이어도 타입 체크가 조용히 지나갑니다. 어느 실체에서 왔든 모양이 같으니까요. 컴파일러가 어느 파일을 집는지는 [import 가 안 되는 진짜 이유](/posts/typescript-module-resolution)에서 다뤘는데, 지금은 그렇게 집힌 파일이 둘로 갈렸을 때가 문제예요.
+
+그 구조적 타이핑에 예외가 하나 있어요.
+
+<Callout variant="warning">
+"if the target type contains a private member, then the source type must also contain a private member that originated from the same class." - TypeScript Handbook
+
+private 나 protected 멤버가 하나라도 있으면 모양이 같아도 부족해요. 같은 클래스 선언에서 나온 멤버여야 호환을 인정하거든요. 실체가 두 개면 선언도 두 개니까 여기서 딱 걸립니다.
+
+</Callout>
+
+```ts
+// @acme/core 3.0.3 이 내보낸 클래스
+export class ThemeConfig {
+  private tokens: Record<string, string>;
+}
+
+// 서비스 코드
+import { ThemeConfig } from "@acme/core"; // 실체 A 를 집음
+import { applyTheme } from "seed-design"; // 내부에서 실체 B 를 집음
+
+applyTheme(new ThemeConfig());
+// error TS2345: Types have separate declarations of a private property 'tokens'.
+```
+
+제네릭도 비슷해요. `interface Empty<T> {}` 처럼 타입 파라미터가 멤버에 안 쓰이면 호환 판정에 영향이 없지만, `interface Box<T> { data: T }` 처럼 실제로 쓰이면 `T` 가 갈리는 순간 어긋나요.<Cite id="ts-type-compat" />
+
+세 번째 경로는 모듈 augmentation 이에요. `declare module "@acme/core"` 로 남의 타입에 필드를 덧붙이는 문법인데, 이 선언은 원본과 같은 파일에 적힌 것처럼 병합돼요.<Cite id="ts-declaration-merging" /> 실체가 둘이면 augmentation 은 그중 한쪽에만 붙어요. 다른 쪽을 집은 코드에서는 방금 추가한 필드가 없다고 나오고요.
+
+## 하나로 모으는 순서
+
+먼저 눈으로 봐야 해요. 근데 `pnpm list` 는 `--depth` 기본값이 0 이라 직접 의존성만 보여줘요. 깊이를 열어야 중복이 드러납니다.<Cite id="pnpm-list" />
+
+```bash
+# 워크스페이스 전체에서 이 패키지의 모든 인스턴스 훑기
+pnpm ls -r @acme/core --depth Infinity
+
+# 누가 이 버전을 끌어왔는지 역방향으로 추적
+pnpm why -r --only-projects @acme/core
+```
+
+`pnpm why` 는 찾는 패키지를 뿌리에 두고 그걸 의존하는 쪽으로 거슬러 올라가는 역방향 트리를 그려줘요.<Cite id="pnpm-why" /> `--only-projects` 를 붙이면 워크스페이스 내부 패키지만 남아서 범인이 금방 좁혀지고요.
+
+범인을 찾았으면 자동 정리부터 시도해요. `pnpm dedupe` 는 더 새 버전으로 대체할 수 있는 옛 엔트리를 lockfile 에서 걷어냅니다. 다만 조회 명령이 아니라 실제 install 을 도는 쓰기 명령이에요.<Cite id="pnpm-dedupe" />
+
+```bash
+pnpm dedupe --check   # 바뀔 게 있으면 non-zero 로 끝남
+pnpm dedupe           # 실제로 정리
+```
+
+`--check` 는 lockfile 도 `node_modules` 도 건드리지 않아서 CI 게이트로 그대로 걸 수 있어요.
+
+dedupe 로 안 모이는 경우가 남아요. 요구 범위가 실제로 충돌하면 pnpm 은 합치지 않고 갈라진 채 둡니다. 이때 꺼내는 게 `overrides` 예요. 그래프 안의 어떤 의존성이든, peer 까지 포함해서 강제로 교체해요.<Cite id="pnpm-settings" />
+
+```yaml
+# pnpm-workspace.yaml
+overrides:
+  # 트리 전체의 core 를 한 버전으로 못 박기
+  "@acme/core": "3.28.0"
+
+  # 또는 seed-design 아래의 core 만 좁혀서 맞추기
+  "seed-design>@acme/core": "3.28.0"
+```
+
+전체를 미는 것보다 `부모>자식` 형태로 한 경로만 좁히는 쪽이 안전해요. 다른 자리에서 의도적으로 옛 버전을 붙들고 있을 수도 있으니까요.
+
+<Callout variant="warning">
+`overrides` 는 프로젝트 루트에서만 설정할 수 있어요. 모노레포에서 하위 패키지의 `package.json` 에 적어두고 왜 안 먹지 하면서 한참 헤맬 수 있는 자리예요. 저도 여기서 시간을 좀 버렸어요.
+
+</Callout>
+
+사후 교정이 반복되면 애초에 갈리지 않게 하는 편이 낫습니다. catalog 는 버전 범위를 워크스페이스 한 곳에 상수처럼 정의해 두고, 각 `package.json` 이 `catalog:` 프로토콜로 그걸 참조하게 하는 기능이에요.<Cite id="pnpm-catalogs" /> 같은 파일에 나란히 있는 `packageExtensions` 와는 손대는 방향이 정반대라서, 둘이 헷갈린다면 [pnpm 설정의 두 방향](/posts/pnpm-package-extensions-vs-catalog)을 같이 보면 정리가 돼요.
+
+```yaml
+# pnpm-workspace.yaml
+catalog:
+  "@acme/core": ^3.28.0
+```
+
+```json
+// packages/dashboard/package.json
+{
+  "dependencies": {
+    "@acme/core": "catalog:"
+  }
+}
+```
+
+버전을 올릴 때 한 곳만 고치면 되고, `package.json` 여러 개를 동시에 건드리지 않으니 머지 충돌도 줄어요. 게시할 때는 `catalog:` 가 실제 범위로 치환돼서 나가니까 바깥에서 설치하는 쪽도 그대로 쓸 수 있고요.
+
+마지막으로 그 고정이 유지되는지 확인해요. CI 에서 `pnpm install --frozen-lockfile` 이 통과하면 lockfile 이 정말 재현 가능한 상태라는 뜻이에요.
+
+캐럿 범위가 열어둔 문으로 새 버전이 들어왔고, pnpm 은 버전마다 별도 실체를 두는 게 기본이라 두 벌을 그대로 허용했어요. 그 위에서 TypeScript 가 private 멤버와 augmentation 을 근거로 둘을 남남이라고 판정한 거고요. 세 고리 중에 버그는 하나도 없어요. 그래서 타입 에러를 아무리 노려봐도 답이 안 나왔던 거예요.
+
+업그레이드가 어디까지 번질지 미리 재보고 싶다면 [바꾸기 전에 얼마나 바뀔지 재보기](/posts/measuring-migration-impact)가 이어서 볼 만해요.
+
+<FAQ
+  items={[
+    {
+      question: "pnpm dedupe 만 돌리면 중복이 다 없어지나요?",
+      answer:
+        "아니요. 더 새 버전으로 대체할 수 있을 때만 옛 엔트리를 걷어내요. 요구 범위가 실제로 충돌하면 갈라진 채 남습니다. 그때는 overrides 로 직접 못 박아야 해요.",
+    },
+    {
+      question: "npm 이나 yarn 에서는 왜 이런 일을 덜 겪었나요?",
+      answer:
+        "평평한 node_modules 는 가능하면 한 벌을 위로 끌어올려 공유하고 충돌할 때만 중첩시켜요. pnpm 은 버전마다 별도 실체를 두는 게 기본이라 중복이 더 자주 드러납니다. npm 에서도 중첩된 두 벌은 생겼어요. 겉으로 조용했을 뿐이에요.",
+    },
+    {
+      question: "core 를 peerDependencies 로 옮기면 해결되나요?",
+      answer:
+        "방향은 맞아요. peer 로 선언하면 버전 결정권이 라이브러리에서 쓰는 쪽으로 넘어가거든요. 다만 peer 조합이 갈리면 pnpm 이 인스턴스를 복제하니까, catalog 나 overrides 로 조합 자체를 하나로 유지해야 효과가 있어요.",
+    },
+  ]}
+/>
+
+<References
+  items={[
+    {
+      id: "pnpm-peers",
+      title: "pnpm - How peers are resolved",
+      href: "https://pnpm.io/how-peers-are-resolved",
+      description: "peer 조합마다 패키지가 복제되고 디렉토리 이름에 접미사가 붙는 동작",
+    },
+    {
+      id: "pnpm-node-modules",
+      title: "pnpm - node_modules structure",
+      href: "https://pnpm.io/symlinked-node-modules-structure",
+      description: ".pnpm 가상 스토어와 심볼릭 링크 구조, realpath 기준 해석",
+    },
+    {
+      id: "pnpm-settings",
+      title: "pnpm - Settings",
+      href: "https://pnpm.io/settings",
+      description: "overrides 셀렉터 문법과 루트 전용 제약, dedupePeerDependents 동작",
+    },
+    {
+      id: "pnpm-catalogs",
+      title: "pnpm - Catalogs",
+      href: "https://pnpm.io/catalogs",
+      description: "catalog: 프로토콜로 워크스페이스 버전을 한 곳에 모으는 방법",
+    },
+    {
+      id: "pnpm-dedupe",
+      title: "pnpm - pnpm dedupe",
+      href: "https://pnpm.io/cli/dedupe",
+      description: "옛 엔트리를 걷어내는 동작과 --check 의 dry-run 종료 코드",
+    },
+    {
+      id: "pnpm-why",
+      title: "pnpm - pnpm why",
+      href: "https://pnpm.io/cli/why",
+      description: "역방향 의존성 트리 출력과 --only-projects, --exclude-peers 옵션",
+    },
+    {
+      id: "pnpm-list",
+      title: "pnpm - pnpm list",
+      href: "https://pnpm.io/cli/list",
+      description: "--depth 기본값이 0 이라 Infinity 로 열어야 중복이 보이는 이유",
+    },
+    {
+      id: "pnpm-install",
+      title: "pnpm - pnpm install",
+      href: "https://pnpm.io/cli/install",
+      description: "--frozen-lockfile 의 CI 와 로컬 기본값 차이, --lockfile-only 동작",
+    },
+    {
+      id: "ts-type-compat",
+      title: "TypeScript Handbook - Type Compatibility",
+      href: "https://www.typescriptlang.org/docs/handbook/type-compatibility.html",
+      description: "구조적 타이핑의 private, protected 예외와 제네릭 호환 판정",
+    },
+    {
+      id: "ts-declaration-merging",
+      title: "TypeScript Handbook - Declaration Merging",
+      href: "https://www.typescriptlang.org/docs/handbook/declaration-merging.html",
+      description: "모듈 augmentation 이 원본과 같은 파일처럼 병합되는 규칙",
+    },
+    {
+      id: "npm-semver",
+      title: "npm Docs - About semantic versioning",
+      href: "https://docs.npmjs.com/about-semantic-versioning",
+      description: "캐럿과 틸드 범위가 각각 어디까지 버전을 수용하는지",
+    },
+  ]}
+/>
