@@ -22,6 +22,7 @@ export type MotifKey =
   | "styling"
   | "rendering"
   | "data-url"
+  | "pointer"
   | "measurement"
   | "network"
   | "event-loop"
@@ -72,6 +73,10 @@ const TAG_TO_MOTIF: Array<[RegExp, MotifKey]> = [
   [/^(AST|codemod|리팩토링)$/i, "refactor"],
   [/^(텍스트|제어)$/i, "typography"],
   [/^(data URL|인라인 자산|Base64|임베드)$/i, "data-url"],
+  [
+    /^(이벤트|이벤트 위임|포인터|Pointer Events|hover|호버|클릭|마우스|히트 테스트|hit test)$/i,
+    "pointer",
+  ],
   [/^(DOM 측정|offsetWidth|offsetHeight|측정|리플로우|reflow|DOM)$/i, "measurement"],
   [/^(캐시|캐싱|cache|caching|CDN|edge|TTL|Cache-Control|ETag)$/i, "cache"],
   [/^(네트워크|HTTP|HTTP\/1\.1|HTTP\/2|HTTP\/3|QUIC|TCP|multiplexing)$/i, "network"],
@@ -102,6 +107,7 @@ const MOTIF_PRIORITY: MotifKey[] = [
   "module",
   "typography",
   "data-url",
+  "pointer",
   "measurement",
   "cache",
   "network",
@@ -290,6 +296,13 @@ const PALETTES: Record<MotifKey, BannerPalette> = {
     primary: "#38bdf8",
     accent: "#fb923c",
     text: "#e0f2fe",
+  },
+  pointer: {
+    bg: "#12142e",
+    bgAccent: "#242a5c",
+    primary: "#60a5fa",
+    accent: "#f87171",
+    text: "#dbeafe",
   },
   "event-loop": {
     bg: "#0f1530",
