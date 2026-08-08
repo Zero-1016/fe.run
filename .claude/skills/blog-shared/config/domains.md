@@ -99,6 +99,11 @@ blog 스킬 패밀리에서 출처의 권위를 판정할 때 사용하는 도�
 - `testing-library.com` (Testing Library)
 - `cypress.io` (Cypress)
 
+### 버전 관리 / 협업
+
+- `git-scm.com` (Git 공식 문서)
+- `docs.github.com` (GitHub 공식 제품 문서)
+
 ### 클라우드/인프라
 
 - `developer.apple.com` (Apple)

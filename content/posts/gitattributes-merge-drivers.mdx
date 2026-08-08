@@ -1,0 +1,212 @@
+---
+title: "binary는 머지 드라이버가 아니에요"
+description: "gitattributes 의 binary 는 드라이버 이름이 아니라 merge 를 꺼버리는 매크로예요."
+date: 2026-08-08
+tags: ["Git", "GitHub", "gitattributes", "머지 충돌", "협업"]
+published: true
+---
+
+디자이너가 다시 뽑아준 스프라이트 이미지가 충돌났어요. PR 화면에 들어가 보니 Resolve conflicts 버튼이 회색으로 죽어 있더라고요. 범인은 저장소에 오래전부터 있던 `*.png binary` 한 줄인데, 이 한 줄은 `merge=binary` 드라이버를 고르는 게 아니라 merge 어트리뷰트를 통째로 꺼버리는 매크로예요.
+
+## 에셋이 충돌하자 버튼이 회색이 됐다
+
+`.gitattributes` 에 이렇게 적어두는 건 흔한 관행이에요.
+
+```
+# .gitattributes
+*.png binary
+```
+
+이름만 보면 "png 는 바이너리니까 바이너리용 머지 드라이버를 써라" 로 읽히죠. 저도 한참을 그렇게 읽었어요. 근데 [gitattributes 문서](https://git-scm.com/docs/gitattributes)를 열어보면 `binary` 는 어트리뷰트 이름이 아니라 매크로 어트리뷰트예요. 내부 정의가 이렇게 생겼거든요.<Cite id="git-gitattributes" />
+
+```
+[attr]binary -diff -merge -text
+```
+
+앞에 붙은 `-` 는 그 어트리뷰트를 Unset 한다는 뜻이에요. 그러니까 `*.png binary` 한 줄은 diff 도 끄고, merge 도 끄고, 줄끝 정규화까지 끄는 세 가지 일을 한꺼번에 해요. `merge` 를 `binary` 로 **설정하는** 게 아니라 `merge` 자체를 꺼버리는 쪽이죠.
+
+## merge 어트리뷰트가 가질 수 있는 네 가지 상태
+
+`merge` 는 켜고 끄는 스위치가 아니라 네 가지 상태를 가져요. 어떤 상태냐에 따라 git 이 붙이는 내장 드라이버가 달라지고요.
+
+Set 은 `merge` 라고만 적은 경우예요. 3-way 머지, 그러니까 공통 조상과 양쪽 버전 셋을 놓고 비교하는 방식의 드라이버가 붙어요. Unset 은 `-merge` 라고 적은 경우고, 방금 본 `binary` 매크로가 확장되면 도착하는 자리예요.
+
+Unspecified 는 아무것도 안 적은 기본 상태인데 동작은 Set 과 같아요. 마지막 String 은 `merge=union` 처럼 드라이버를 이름으로 부르는 경우고, 여기서 내장 드라이버도 `text` 와 `binary` 라는 이름으로 직접 지목할 수 있어요.
+
+<FlowDiagram
+  height={420}
+  caption="gitattributes 에 적은 값이 어느 내장 드라이버로 이어지는지"
+  edgeType="smoothstep"
+  nodes={[
+    {
+      id: "attr",
+      title: "merge 어트리뷰트",
+      description: "png 한 줄에 무엇을 적었나",
+      x: 0,
+      y: 150,
+      kind: "accent",
+    },
+    {
+      id: "s-set",
+      title: "merge 또는 미지정",
+      description: "아무것도 안 적어도 여기",
+      x: 240,
+      y: 0,
+    },
+    {
+      id: "s-unset",
+      title: "-merge 또는 binary",
+      description: "매크로가 확장되어 도착",
+      x: 240,
+      y: 150,
+    },
+    {
+      id: "s-str",
+      title: "merge=union",
+      description: "드라이버를 이름으로 호출",
+      x: 240,
+      y: 300,
+    },
+    {
+      id: "d-text",
+      title: "text 드라이버",
+      description: "3-way 머지 후 충돌 마커",
+      x: 500,
+      y: 0,
+      kind: "success",
+    },
+    {
+      id: "d-bin",
+      title: "binary 드라이버",
+      description: "내 쪽만 남기고 충돌 선언",
+      x: 500,
+      y: 150,
+      kind: "warning",
+    },
+    {
+      id: "d-union",
+      title: "union 드라이버",
+      description: "양쪽 줄을 전부 남김",
+      x: 500,
+      y: 300,
+      kind: "error",
+    },
+  ]}
+  edges={[
+    { from: "attr", to: "s-set", label: "Set, 미지정" },
+    { from: "attr", to: "s-unset", label: "Unset" },
+    { from: "attr", to: "s-str", label: "String" },
+    { from: "s-set", to: "d-text" },
+    { from: "s-unset", to: "d-bin" },
+    { from: "s-str", to: "d-union" },
+  ]}
+/>
+
+여기서 헷갈리기 쉬운 지점이 나와요. `-merge` 와 `merge=binary` 는 머지 동작이 똑같아요. 둘 다 내 브랜치 버전을 남기고 충돌만 선언하거든요. 다른 건 적용 범위예요. `merge=binary` 는 머지 동작만 건드리는데, 매크로 `binary` 는 diff 와 줄끝 정규화까지 같이 꺼요. `git diff` 에서 그 파일이 내용 없이 다르다는 한 줄로만 보이는 것도 여기서 나온 결과고요.<Cite id="git-gitattributes" />
+
+## 내장 드라이버 세 개가 각각 하는 일
+
+`text` 는 우리가 아는 그 머지예요. 양쪽 변경을 합쳐보고 겹치는 자리가 나오면 `<<<<<<<` 와 `=======` 와 `>>>>>>>` 로 감싸요. `=======` 위쪽이 내 브랜치, 아래쪽이 머지해 들어오는 브랜치고요. 실제로 하는 일은 [git merge-file](https://git-scm.com/docs/git-merge-file) 과 같은데, 이 명령 자체가 RCS 의 merge 를 최소한으로 옮겨온 클론이에요. RCS 는 git 보다 훨씬 앞선 세대의 버전 관리 도구고요.<Cite id="git-merge-file" />
+
+`binary` 는 합치기를 시도조차 하지 않아요.<Cite id="git-gitattributes" />
+
+<Callout variant="warning">
+"Keep the version from your branch in the work tree, but leave the path in the conflicted state for the user to sort out." - git gitattributes
+
+파일 내용은 내 쪽 그대로 두고, 대신 아직 안 끝났다는 표시만 세워둬요. 자동으로 합치는 게 아니라 합치기를 포기하고 사람한테 넘기는 거죠.
+
+</Callout>
+
+`union` 은 반대쪽 극단이에요. 충돌 마커를 남기지 않고 양쪽 줄을 전부 결과 파일에 넣어요. 마커가 없으니 머지는 깔끔하게 끝난 것처럼 보이는데, 추가된 줄이 어떤 순서로 남을지는 보장되지 않아요. 문서가 드물게 단호한 문장을 붙여둔 것도 그래서예요.
+
+<Callout variant="error">
+"Do not use this if you do not understand the implications." - git gitattributes
+
+무슨 일이 벌어지는지 모르겠으면 쓰지 말라는 뜻이에요. 머지는 성공했는데 결과 파일이 조용히 틀어져 있을 수 있거든요.
+
+</Callout>
+
+그래서 파일 종류마다 원하는 게 다르면 이렇게 나눠 적어요.
+
+```
+# .gitattributes
+
+# 머지만 포기하고 diff 는 살려두고 싶을 때
+*.png merge=binary
+
+# diff 와 줄끝 정규화까지 전부 끄고 싶을 때
+*.psd binary
+
+# 양쪽 줄을 다 남기되 결과를 반드시 눈으로 확인할 때
+CHANGELOG.md merge=union
+```
+
+마지막 줄은 git 문서가 권하는 용례는 아니에요. 그래서 걸어두더라도 릴리스 전에 파일을 한 번은 열어보게 되더라고요.
+
+## 충돌한 바이너리에서 손에 남는 것
+
+`merge=binary` 로 충돌이 나면 워킹트리에는 내 쪽 파일 한 벌만 남아요. 상대가 뭘 바꿨는지 볼 방법이 없는 것처럼 느껴지죠. 근데 인덱스에는 세 벌이 그대로 살아 있어요. git 은 충돌 경로마다 stage 1 에 공통 조상, stage 2 에 `HEAD`, stage 3 에 머지해 들어오는 쪽을 가리키는 `MERGE_HEAD` 버전을 기록해 두거든요.<Cite id="git-merge" />
+
+꺼내보는 건 두 명령이면 돼요.
+
+```bash
+# 충돌 경로와 stage 확인
+git ls-files -u
+
+# 세 버전을 각각 꺼내보기
+git show :1:assets/sprite.png > /tmp/base.png
+git show :2:assets/sprite.png > /tmp/ours.png
+git show :3:assets/sprite.png > /tmp/theirs.png
+```
+
+`:1:` 이 공통 조상, `:2:` 가 내 쪽, `:3:` 이 상대 쪽이에요. 이미지 세 장을 나란히 열어보면 상대가 아이콘을 몇 개 더 얹었는지 아니면 전체를 다시 뽑았는지가 바로 보여요. 그다음에 남길 파일을 골라 덮어쓰고 `git add` 하면 끝나고요.
+
+## 그래서 웹 에디터에서는 손댈 수 없어요
+
+[GitHub 문서](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/addressing-merge-conflicts/resolving-a-merge-conflict-on-github)는 웹에서 풀 수 있는 충돌의 범위를 한 문장으로 못 박아 뒀어요.<Cite id="github-resolve-conflict" />
+
+<Callout variant="info">
+"You can only resolve merge conflicts on GitHub that are caused by competing line changes, such as when people make different changes to the same line of the same file on different branches." - GitHub Docs
+
+같은 파일의 같은 줄을 서로 다르게 고친 경우, 딱 그것만 웹에서 처리한다는 뜻이에요.
+
+</Callout>
+
+`binary` 드라이버가 붙은 파일에는 겨루는 줄이라는 게 아예 없어요. 줄 단위로 비교를 안 하니까요. 파일 하나를 통째로 남기고 충돌 표시만 세워두는 게 이 드라이버가 하는 일의 전부라, 웹 에디터가 붙잡을 손잡이가 없는 거죠. 버튼이 회색인 건 고장이 아니라 정의대로 동작한 결과예요.
+
+문서는 버튼이 비활성인 이유를 두 가지로 설명해요. 충돌이 GitHub 에서 풀기엔 너무 복잡하거나, 관리자가 저장소 간 PR 의 충돌 에디터를 꺼둔 경우고요. 바이너리 충돌은 애초에 웹이 지원하는 범위 밖이라, 둘 중 어느 사유든 결국 로컬로 내려받아 푸는 수밖에 없고요.
+
+`*.png binary` 는 대개 원하는 결과를 줘요. 다만 그게 바이너리용 드라이버를 고른 결과가 아니라 머지를 끈 결과라는 걸 알고 쓰는 것과 모르고 쓰는 건 달라요. 충돌이 났을 때 GitHub 화면을 새로고침할지 터미널에서 `git ls-files -u` 를 칠지가 여기서 갈리거든요.
+
+충돌 자체를 덜 만나고 싶다면 변경을 작게 쌓아 올리는 쪽도 방법이에요. 그건 [따로 정리해 뒀어요](/posts/gh-stack-stacked-prs).
+
+한 걸음 더 나가면 커스텀 드라이버가 기다리고 있어요. 설정에 `[merge "이름"]` 을 정의하고 `driver = 명령 %O %A %B` 를 적어두면, 공통 조상과 양쪽 버전을 인자로 받는 내 프로그램이 머지를 대신 처리해요. 결과를 `%A` 자리에 써주고 깨끗하게 합쳐졌으면 0, 충돌이 남았으면 0이 아닌 값으로 끝내주면 되고요.
+
+<References
+  items={[
+    {
+      id: "git-gitattributes",
+      title: "Git - gitattributes Documentation",
+      href: "https://git-scm.com/docs/gitattributes",
+      description: "merge 어트리뷰트의 네 가지 상태, 내장 드라이버 text / binary / union 정의, binary 매크로 확장 규칙",
+    },
+    {
+      id: "git-merge",
+      title: "Git - git-merge Documentation",
+      href: "https://git-scm.com/docs/git-merge",
+      description: "충돌 경로가 인덱스에 stage 1, 2, 3 으로 기록되는 방식",
+    },
+    {
+      id: "git-merge-file",
+      title: "Git - git-merge-file Documentation",
+      href: "https://git-scm.com/docs/git-merge-file",
+      description: "3-way 머지의 실제 동작과 충돌 마커, RCS merge 와의 관계",
+    },
+    {
+      id: "github-resolve-conflict",
+      title: "GitHub Docs - Resolving a merge conflict on GitHub",
+      href: "https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/addressing-merge-conflicts/resolving-a-merge-conflict-on-github",
+      description: "웹 충돌 에디터가 competing line changes 만 지원하는 범위와 버튼 비활성 사유",
+    },
+  ]}
+/>

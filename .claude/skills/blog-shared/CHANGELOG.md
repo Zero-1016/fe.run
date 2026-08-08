@@ -1228,3 +1228,44 @@ FlowDiagram 없으면 grep 가드로 즉시 skip(서버도 안 띄움).
 **재검증 결과**: 사용자가 "나중에" 선택. 미실행.
 
 ---
+
+## 2026-08-08 23:44
+
+### config/domains.md §DOMAIN-PRIORITY-1 — 버전 관리 / 협업 카테고리 신설
+
+**변경**: `§DOMAIN-PRIORITY-1` 에 새 하위 카테고리 "버전 관리 / 협업" 을 추가하고
+`git-scm.com` (Git 공식 문서) 과 `docs.github.com` (GitHub 공식 제품 문서) 을
+등재. 위치는 "테스트" 와 "클라우드/인프라" 사이.
+
+**이유**: blog-write 로 gitattributes 머지 드라이버 글을 쓰는 중에 blog-research
+와 blog-validator 가 독립적으로 같은 문제를 보고했음. 두 도메인이 리스트에 없어서
+validator Phase 4-1 을 글자 그대로 적용하면 References 가 전부 공식 문서인데도
+1순위 출처 0개로 판정돼 블로커가 남. §SOURCE-PRIORITY 는 1순위를 "언어/런타임
+공식 문서, 라이브러리 공식 저장소 및 공식 문서" 로 정의하고 §DOMAIN-WHITELIST 는
+그 판정을 돕는 포인터라고 명시하므로, 글이 아니라 리스트가 낡은 쪽이었음.
+
+기존 10개 카테고리 (웹 표준 / 런타임 / 패키지 매니저 / 프레임워크 / CSS / 상태
+관리 / DB / 빌드 / 테스트 / 클라우드) 중 git 이 들어갈 자리가 없어 새 카테고리를
+만듦.
+
+**수정 유형**: 새 하위 카테고리 추가 + 도메인 2개 등재 (완화 방향)
+
+**충돌 검토**: `§DOMAIN-PRIORITY-2` 의 "GitHub 의 메인테이너 공식 계정 블로그
+(case-by-case 판단)" 는 `github.blog` / 개인 계정을 가리키는 항목이라 제품 문서인
+`docs.github.com` 과 계층이 다름. 충돌 아님. 기존에도 `github.com/tc39`,
+`w3c.github.io`, `esbuild.github.io` 처럼 GitHub 하위를 개별 등재해온 방식과 일관됨.
+
+**영향 범위**:
+
+- blog-validator: Phase 4-1 도메인 판정에서 참조 (자동 반영, 수정 불필요)
+- blog-research: 1순위 출처 자동 판정에서 참조 (자동 반영)
+- blog-topic-suggest: 1순위 자료 가능성 표시에서 참조 (자동 반영)
+- 기존 글: 두 도메인을 쓰는 글은 `content/posts/gitattributes-merge-drivers.mdx`
+  1건뿐. 완화 방향이라 다른 글에 새 에러 발생 없음
+
+**백업**: `.backups/domains-20260808-234455.md`
+
+**재검증 결과**: `gitattributes-merge-drivers.mdx` Phase 4-1 재판정 결과 1순위
+출처 0개 → 4개로 통과. velite 통과.
+
+---
