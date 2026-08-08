@@ -1,0 +1,331 @@
+---
+title: "클릭이 안 먹는 자리에는 뭔가 있어요"
+description: "분명 버튼인데 클릭이 안 될 때, 그 위에 뭔가 덮여 있어요."
+date: 2026-08-09
+tags: ["브라우저", "DOM", "이벤트", "CSS"]
+published: true
+---
+
+분명 버튼인데 클릭이 안 먹어요. 개발자 도구로 봐도 버튼은 멀쩡히 거기 있고요. 브라우저는 좌표 하나를 받아서 그 아래 어느 요소를 고를지 정하는데, 이 판정을 히트 테스트라고 불러요. 클릭도 hover도 커서 모양도 전부 이 판정 하나에 얹혀 있어서, 여기서 다른 요소가 골라지면 나머지가 통째로 어긋나요.
+
+## 투명한 게 클릭을 먹고 있어요
+
+흔한 범인 하나는 투명한 오버레이예요. 모달을 닫으면서 배경 레이어를 지우는 걸 깜빡했거나, 애니메이션이 끝난 뒤에도 `position: absolute` 로 깔아둔 판이 남아 있는 경우죠. 눈에는 아무것도 없는데 좌표 판정에서는 그게 제일 위예요.
+
+배경이 완전히 투명해도 상관없어요. 히트 테스트는 색을 보는 게 아니라 박스를 보거든요. 아래에서 체크박스를 켜고 버튼을 눌러보세요. 버튼은 그대로 보이는데 클릭 수가 안 올라갑니다.
+
+<CodePlayground
+  code={`function OverlayTrap() {
+    const [clicks, setClicks] = React.useState(0);
+    const [veil, setVeil] = React.useState(true);
+
+    return (
+      <div className="stage">
+        <label className="switch">
+          <input
+            type="checkbox"
+            checked={veil}
+            onChange={(e) => setVeil(e.target.checked)}
+          />
+          투명한 판 덮기
+        </label>
+
+        <div className="board">
+          <button className="btn" onClick={() => setClicks((n) => n + 1)}>
+            눌러보세요
+          </button>
+          {veil ? <div className="veil" /> : null}
+        </div>
+
+        <p className="hint">클릭 {clicks}회</p>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-family: system-ui, sans-serif;
+    color: #334155;
+  }
+
+  .switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  .board {
+    position: relative;
+    padding: 24px;
+    background: #ffffff;
+    border-radius: 8px;
+  }
+
+  .btn {
+    padding: 10px 18px;
+    border: 1px solid #6366f1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4338ca;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .veil {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+  }
+
+  .hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+  }`}
+  template="react"
+/>
+
+`.veil` 에는 배경색도 글자도 없어요. 그래도 박스는 존재하고, 그 박스가 버튼보다 위에 있으니 좌표 판정을 가져가요.
+
+## 그리는 순서의 역순으로 훑어요
+
+그럼 무엇이 "위" 인지는 누가 정하냐면, 요소를 그리는 순서가 정해요. CSS 2.1 은 부록에서 페인팅 순서를 열 단계로 못 박아뒀어요. 배경과 보더가 먼저 깔리고, 음수 `z-index` 를 가진 쌓임 맥락이 그다음, 인플로우 콘텐츠와 텍스트, 그리고 `z-index` 가 `auto` 나 `0` 인 위치 지정 요소들이 트리 순서대로, 마지막에 `z-index` 가 1 이상인 쌓임 맥락이 얹혀요.<Cite id="css21-zindex" />
+
+그러니까 `z-index` 를 아무한테도 안 줘도 순서는 이미 정해져 있어요. 이 순서가 어긋나서 생기는 문제는 [z-index 9999의 배신](/posts/css-stacking-context)에서 따로 다뤘고요. 픽셀이 만들어지기까지의 전체 단계는 [브라우저는 어떻게 화면을 그릴까](/posts/how-browsers-render-pages)에 정리했어요.
+
+여기서 한 가지 짚어둘 게 있어요. CSS 2.1 은 **그리는 순서만** 규정하지, 히트 테스트가 그 순서의 역순으로 훑는다고 쓰지는 않아요. 다만 나중에 그려진 게 위에 보이고 위에 보이는 게 먼저 잡히니까, 결과적으로 역순 탐색처럼 동작해요. 명세 문장과 제 설명을 섞어 읽지 않으셨으면 해서 구분해 둡니다.
+
+## 좌표 아래를 직접 물어보기
+
+추측 대신 물어볼 수 있어요. [`document.elementFromPoint()`](https://developer.mozilla.org/en-US/docs/Web/API/Document/elementFromPoint) 는 좌표를 주면 그 자리에서 히트 테스트가 고를 요소 하나를 돌려줘요. 좌표는 문서가 아니라 **뷰포트 기준**이라 스크롤한 만큼 달라지고요.<Cite id="mdn-element-from-point" />
+
+같은 좌표의 요소를 전부 보고 싶으면 복수형인 [`elementsFromPoint()`](https://developer.mozilla.org/en-US/docs/Web/API/Document/elementsFromPoint) 를 쓰면 돼요. 제일 위에서 제일 아래 순서로 배열이 나와요.<Cite id="mdn-elements-from-point" /> 아래 데모에 마우스를 올리면 그 좌표에 쌓여 있는 것들이 실시간으로 찍혀요.
+
+<CodePlayground
+  code={`function StackProbe() {
+    const [stack, setStack] = React.useState([]);
+
+    const probe = (event) => {
+      const found = document.elementsFromPoint(event.clientX, event.clientY);
+      const names = found.slice(0, 5).map((el) => {
+        const parts = String(el.className || "")
+          .split(" ")
+          .filter(Boolean);
+        const cls = parts.length ? parts[parts.length - 1] : "";
+        return el.tagName.toLowerCase() + (cls ? "." + cls : "");
+      });
+      setStack(names);
+    };
+
+    return (
+      <div className="stage" onPointerMove={probe}>
+        <div className="board">
+          <div className="layer layer--back">뒤에 깔린 판</div>
+          <div className="layer layer--front">앞에 놓인 판</div>
+        </div>
+        <p className="hint">
+          {stack.length ? stack.join("  위에  ") : "판 위로 마우스를 옮겨보세요"}
+        </p>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-family: system-ui, sans-serif;
+    color: #334155;
+  }
+
+  .board {
+    position: relative;
+    height: 130px;
+  }
+
+  .layer {
+    position: absolute;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .layer--back {
+    inset: 0 60px 20px 0;
+    background: #ddd6fe;
+  }
+
+  .layer--front {
+    inset: 30px 0 0 60px;
+    background: #a5b4fc;
+  }
+
+  .hint {
+    margin: 0;
+    min-height: 20px;
+    color: #64748b;
+    font-size: 13px;
+    font-family: ui-monospace, monospace;
+  }`}
+  template="react"
+/>
+
+재밌는 건 이 절차가 명세에 없다는 점이에요. `elementFromPoint` 를 정의한 CSSOM View 명세가 히트 테스트 자체는 범위 밖이라고 명시해 뒀거든요.<Cite id="cssom-view" />
+
+<Callout variant="info">
+"The specifics of hit testing are out of scope of this specification. Hit testing will hopefully be defined in a future revision of CSS or HTML." - W3C CSSOM View Module Level 1
+
+히트 테스트가 구체적으로 어떻게 도는지는 이 명세가 정하지 않고, 언젠가 CSS 나 HTML 개정판에서 정의되기를 바란다고 적혀 있어요. 클릭과 hover 가 전부 얹혀 있는 절차인데 정작 그 절차는 아직 표준 문장이 없는 셈이에요. `hopefully` 라는 단어가 그대로 살아 있는 게 인상적이고요.
+
+</Callout>
+
+돌려주는 값에도 함정이 하나 있어요. 좌표가 뷰포트 밖이거나 음수면 `null` 이 나오는데, 좌표는 멀쩡한데 그 자리에 박스가 없으면 `null` 이 아니라 루트 요소가 나와요. 두 경우를 같이 묶어서 처리하면 엉뚱한 곳에서 새요.
+
+## 히트 테스트에서 빠지는 법
+
+투명한 판이 꼭 필요한 경우도 있죠. 그럴 땐 그 요소를 판정 대상에서 빼면 돼요. `pointer-events: none` 이 그 일을 합니다. 아래 토글로 켜보면 같은 판인데 클릭이 통과해요.
+
+<CodePlayground
+  code={`function PointerEventsToggle() {
+    const [pass, setPass] = React.useState(false);
+    const [hit, setHit] = React.useState("아직 없음");
+
+    return (
+      <div className="stage">
+        <label className="switch">
+          <input
+            type="checkbox"
+            checked={pass}
+            onChange={(e) => setPass(e.target.checked)}
+          />
+          덮개에 pointer-events none 주기
+        </label>
+
+        <div className="board">
+          <button className="btn" onClick={() => setHit("버튼")}>
+            버튼
+          </button>
+          <div
+            className={pass ? "veil veil--pass" : "veil"}
+            onClick={() => setHit("덮개")}
+          />
+        </div>
+
+        <p className="hint">마지막으로 잡힌 것: {hit}</p>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-family: system-ui, sans-serif;
+    color: #334155;
+  }
+
+  .switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  .board {
+    position: relative;
+    padding: 24px;
+    background: #ffffff;
+    border-radius: 8px;
+  }
+
+  .btn {
+    padding: 10px 18px;
+    border: 1px solid #6366f1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4338ca;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .veil {
+    position: absolute;
+    inset: 0;
+    background: rgba(99, 102, 241, 0.12);
+  }
+
+  .veil--pass {
+    pointer-events: none;
+  }
+
+  .hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+  }`}
+  template="react"
+/>
+
+여기서 오해가 두 개 생겨요. 첫째, `none` 은 자손까지 함께 꺼주지 않아요. 자식에 다른 값을 주면 그 자식은 다시 판정 대상이 됩니다.<Cite id="mdn-pointer-events" /> 둘째, `none` 은 이벤트를 막는 게 아니라 **타깃이 될 자격만** 뺏어요. 자식이 타깃이 되면 이벤트는 그 위 부모를 타고 흐르면서 `none` 이 걸린 부모의 리스너도 정상적으로 실행해요. 이벤트가 트리를 어떻게 오르내리는지는 [currentTarget은 왜 자꾸 바뀔까](/posts/event-target-vs-currenttarget-propagation)에서 다뤘어요.
+
+이 속성이 원래 CSS 것이 아니라는 것도 알아두면 값 목록이 이해돼요. [SVG 명세](https://www.w3.org/TR/SVG11/interact.html)에서 온 속성이고, 거기서는 판정 기준이 박스가 아니라 실제로 칠해진 면적이었어요. 기본값인 `visiblePainted` 는 요소가 보이는 상태이면서 포인터가 칠해진 영역 위에 있을 때만 대상으로 삼아요.<Cite id="svg11-pointer-events" /> 그래서 SVG 에서는 투명한 `fill` 위를 지나가도 안 걸려요. HTML 의 박스 기반 판정과 감각이 다른 지점이에요.
+
+<Callout variant="warning">
+`pointer-events: none` 을 준 요소도 Tab 키 순차 탐색으로는 여전히 포커스를 받아요. 마우스로는 못 누르는데 키보드로는 도달하는 상태가 되니까, 버튼이나 링크를 이 속성으로 비활성화하지 마세요. 그 자리는 `disabled` 나 `inert` 의 몫이에요.
+
+</Callout>
+
+정리하면 이래요. 좌표 하나가 들어오면 브라우저는 그리는 순서의 반대쪽에서부터 훑어 내려오면서 제일 먼저 걸리는 박스를 고르고, 클릭과 hover 와 커서 모양이 그 결과에 얹혀요. 클릭이 안 먹으면 요소가 사라진 게 아니라 그 판정에서 다른 게 뽑힌 거예요. `elementsFromPoint` 로 좌표 아래를 한 번 찍어보면 대개 범인이 바로 나옵니다.
+
+<References
+  items={[
+    {
+      id: "cssom-view",
+      title: "W3C - CSSOM View Module Level 1",
+      href: "https://www.w3.org/TR/cssom-view-1/",
+      description: "elementFromPoint 알고리즘과 히트 테스트를 범위 밖으로 둔다는 선언",
+    },
+    {
+      id: "css21-zindex",
+      title: "W3C - CSS 2.1 Appendix E, Elaborate description of Stacking Contexts",
+      href: "https://www.w3.org/TR/CSS21/zindex.html",
+      description: "요소를 그리는 열 단계 페인팅 순서",
+    },
+    {
+      id: "svg11-pointer-events",
+      title: "W3C - SVG 1.1 The pointer-events property",
+      href: "https://www.w3.org/TR/SVG11/interact.html#PointerEventsProperty",
+      description: "속성의 원 정의와 칠해진 영역 기준 판정",
+    },
+    {
+      id: "mdn-element-from-point",
+      title: "MDN - Document.elementFromPoint()",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Document/elementFromPoint",
+      description: "최상위 요소 반환, 뷰포트 기준 좌표, null 이 나오는 조건",
+    },
+    {
+      id: "mdn-elements-from-point",
+      title: "MDN - Document.elementsFromPoint()",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Document/elementsFromPoint",
+      description: "같은 좌표의 요소를 위에서 아래 순서로 전부 반환",
+    },
+    {
+      id: "mdn-pointer-events",
+      title: "MDN - CSS `pointer-events`",
+      href: "https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/pointer-events",
+      description: "none 의 정의, 서브트리 재지정, Tab 포커스 접근성 주의",
+    },
+  ]}
+/>
