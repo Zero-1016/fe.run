@@ -1,0 +1,398 @@
+---
+title: "마우스를 뗐는데 hover가 안 풀려요"
+description: "드로워를 닫아도 버튼 색이 그대로 남는 순간이 있어요. 리플로우 탓이 아니에요."
+date: 2026-08-08
+tags: ["CSS", "브라우저", "이벤트", "DOM"]
+published: true
+---
+
+버튼을 눌러 오른쪽 드로워를 열었다가 닫았어요. 닫힘 애니메이션이 없어서 순식간이었고, 그사이 손은 이미 버튼에서 떨어져 있었죠. 그런데도 버튼은 계속 hover 색이에요. `:hover` 는 매 프레임 좌표로 다시 계산되는 게 아니라 입력 이벤트가 들어올 때 갱신되는 상태라서, 포인터가 멈춘 채 레이아웃만 바뀌면 판정이 옛날 그대로 남거든요.
+
+## 리플로우는 범인이 아니에요
+
+저도 처음엔 리플로우를 의심했어요. 드로워가 닫히면서 레이아웃이 다시 계산되고, 그 와중에 hover 색이 눌어붙었나 싶었죠. 근데 순서가 반대예요. hover 판정은 이미 낡아 있었고, 리플로우는 그 낡은 판정을 그대로 들고 다시 칠했을 뿐이에요. 리플로우가 없었어도 판정은 똑같이 낡아 있었어요. 화면에 안 보였을 뿐이죠. [offsetWidth 한 줄이 프레임을 훔칠 때](/posts/pretext-dom-measurement-reflow)에서 강제 리플로우를 성능 관점으로 다뤘는데, 여기서는 같은 동작이 전혀 다른 얼굴로 나와요.
+
+브라우저는 매 프레임마다 "지금 마우스 좌표 아래에 뭐가 있지" 를 다시 묻지 않아요. 대신 포인터 아래에 있는 요소와 그 조상들을 묶어서 상태로 들고 있다가, 입력 이벤트가 들어오면 그때 갱신해요. [Selectors Level 3](https://www.w3.org/TR/css3-selectors/) 의 표현을 빌리면 `:hover` 는 사용자가 요소를 "지목(designate)" 하는 동안 적용되는데, 그 지목이 언제 풀리는지는 정의돼 있지 않아요.<Cite id="selectors3-hover" />
+
+마우스를 움직이지 말고 버튼만 눌러보세요. 버튼이 옆으로 옮겨가도 색이 따라갑니다.
+
+<CodePlayground
+  code={`function HoverGhost() {
+    const [moved, setMoved] = React.useState(false);
+
+    return (
+      <div className="stage">
+        <button
+          className={moved ? "trigger trigger--moved" : "trigger"}
+          onClick={() => setMoved(!moved)}
+        >
+          {moved ? "제자리로" : "누르면 옆으로"}
+        </button>
+        <p className="hint">
+          마우스를 고정한 채로 눌러보세요. 커서는 왼쪽에 있는데 색은 오른쪽에 남아
+          있어요.
+        </p>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-family: system-ui, sans-serif;
+  }
+
+  .trigger {
+    align-self: flex-start;
+    margin-left: 0;
+    padding: 10px 18px;
+    border: 1px solid #6366f1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4338ca;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .trigger:hover {
+    background: #4338ca;
+    color: #ffffff;
+  }
+
+  .trigger--moved {
+    margin-left: 220px;
+  }
+
+  .hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.6;
+  }`}
+  template="react"
+/>
+
+여기서 잔상이 안 보인다면 클릭 직후에 손이 미세하게 움직였을 거예요. 1픽셀만 움직여도 브라우저가 판정을 다시 하거든요. 그게 이 버그가 재현이 어려운 이유이기도 해요.
+
+궁금해서 Playwright 로 Chromium 147 을 띄워놓고 딱 한 줄만 다르게 해봤어요. 클래스만 바꾸고 내버려 두면 버튼은 계속 hover 상태였고 `pointerout` 도 `mouseout` 도 안 날아왔어요. 그런데 클래스를 바꾼 직후에 `getBoundingClientRect()` 로 요소 위치를 한 번 읽으면, 그 자리에서 hover 가 풀리고 두 이벤트가 같이 발화됐고요. 헤드리스와 실제 창 결과가 같았어요.
+
+의심하던 것과 정반대죠. 레이아웃이 아직 정리되지 않은 채로 남아 있는 동안에는 브라우저가 히트 테스트를 다시 하지 않아요. 오히려 레이아웃을 강제로 확정시키는 쪽이 판정을 갱신시키고요. 리플로우는 범인이 아니라 치료제였어요.
+
+## 명세를 열어보면 답이 반만 있어요
+
+이 상황이 명세에 없는 회색지대일 거라고 생각했는데, 열어보니 아니었어요. [Pointer Events](https://www.w3.org/TR/pointerevents4/) 명세는 포인터가 요소 밖으로 나가는 이벤트인 `pointerout` 의 발화 조건에 이 경우를 따로 적어뒀어요.<Cite id="pointerevents-out" />
+
+<Callout variant="info">
+"A layout change causes the hit test boundaries of an element to move away from underneath an uncaptured pointer of a stationary pointing device." - W3C Pointer Events
+
+멈춰 있는 포인팅 디바이스 아래에서 레이아웃 변경으로 요소의 히트 테스트 경계가 빠져나간 경우. 겪은 상황을 명세 용어로 그대로 옮겨 쓴 문장이에요. 여기서 히트 테스트는 "이 좌표에 있는 게 어느 요소인가" 를 브라우저가 판정하는 절차를 말해요.
+
+</Callout>
+
+마우스 이벤트인 `mouseout` 쪽에도 같은 취지의 조항이 있어요. 포인팅 디바이스가 요소 경계 밖으로 이동했을 때, **또는 요소가 움직여서 더 이상 주 포인팅 디바이스 아래에 있지 않게 되었을 때** 발화해야 한다고요. 브라우저가 이 상황을 모른 척해도 되는 게 아니라, 이벤트를 쏘도록 요구받고 있는 거예요.
+
+문제는 이벤트와 CSS 상태가 서로 다른 문서에서 관리된다는 데 있어요. 이벤트 쪽은 저렇게 못 박혀 있는데, `:hover` 가 언제 풀리는지는 CSS 명세가 비워뒀어요.<Cite id="css21-dynamic-pseudo" />
+
+<Callout variant="warning">
+"CSS does not define which elements may be in the above states, or how the states are entered and left." - CSS 2.1
+
+어떤 요소가 이 상태에 들어갈 수 있는지도, 그 상태에 어떻게 들어가고 나오는지도 CSS 는 정의하지 않아요. 바로 다음 문장에서 의사 클래스가 바뀌었다고 해서 이미 그려진 문서를 다시 리플로우할 의무는 없다고 덧붙이고요.
+
+</Callout>
+
+그래서 같은 순간에 두 가지가 동시에 일어날 수 있어요. `mouseout` 은 날아가는데 `:hover` 스타일은 남아 있는 상태요. 자바스크립트로는 이미 빠져나간 걸 아는데 화면은 아직 모르는 셈이죠. 브라우저가 픽셀을 만들어내는 단계가 어떻게 갈라지는지는 [브라우저는 어떻게 화면을 그릴까](/posts/how-browsers-render-pages)에서 정리했어요.
+
+<Callout variant="tip">
+명세에 조항이 있다는 것과 브라우저가 그렇게 동작한다는 건 다른 얘기예요. Pointer Events 는 아직 Working Draft 단계고, 포인터 아래 요소가 사라졌을 때의 동작을 정리한 명세 이슈는 "브라우저 한 곳이 구현하면 닫는다" 를 조건으로 종료됐는데 그 한 곳이 실험 플래그 뒤에 있었어요. 표를 믿기보다 직접 돌려보는 게 빠릅니다.
+
+</Callout>
+
+## 전환을 걸면 해결될까 싶었어요
+
+닫힘 애니메이션이 없어서 생긴 문제니까 전환을 200ms 쯤 걸면 되겠다고 생각했어요. 반은 맞고 반은 틀려요.
+
+전환을 걸어도 브라우저가 hover 판정을 다시 하지는 않아요. 마우스가 가만히 있으면 250ms 짜리 전환이 끝나도 색은 그대로 남아 있어요. 아래 두 버튼을 마우스를 고정한 채 눌러보면 결과가 같습니다.
+
+<CodePlayground
+  code={`function TransitionCompare() {
+    const [instant, setInstant] = React.useState(false);
+    const [slow, setSlow] = React.useState(false);
+
+    return (
+      <div className="stage">
+        <button
+          className={instant ? "trigger trigger--moved" : "trigger"}
+          onClick={() => setInstant(!instant)}
+        >
+          전환 없음
+        </button>
+        <button
+          className={
+            slow
+              ? "trigger trigger--slow trigger--moved"
+              : "trigger trigger--slow"
+          }
+          onClick={() => setSlow(!slow)}
+        >
+          전환 250ms
+        </button>
+        <p className="hint">
+          둘 다 잔상이 남아요. 전환이 도와주는 건 브라우저가 아니라 사람이에요.
+          움직일 시간이 생기니까요.
+        </p>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 24px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-family: system-ui, sans-serif;
+  }
+
+  .trigger {
+    margin-left: 0;
+    padding: 10px 18px;
+    border: 1px solid #6366f1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4338ca;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .trigger:hover {
+    background: #4338ca;
+    color: #ffffff;
+  }
+
+  .trigger--slow {
+    transition: margin-left 250ms ease;
+  }
+
+  .trigger--moved {
+    margin-left: 220px;
+  }
+
+  .hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.6;
+  }`}
+  template="react"
+/>
+
+전환이 실제로 하는 일은 사람에게 시간을 주는 거예요. 200ms 동안 화면이 움직이면 사용자는 반사적으로 마우스를 조금이라도 움직이고, 그 움직임이 판정을 갱신해요. 버그를 고친 게 아니라 발생 확률을 낮춘 거죠. 그래서 QA 환경에서는 멀쩡하다가 특정 사용자에게만 재현되는 형태로 남아요.
+
+세 가지가 겹칠 때만 터집니다.
+
+<AnimatedStep
+  steps={[
+    {
+      title: "포인터가 멈춰 있다",
+      content: "클릭 직후라 손이 버튼 위에 그대로 있거나, 클릭 반동으로만 살짝 눌린 상태예요.",
+    },
+    {
+      title: "요소 아래에서 레이아웃이 바뀐다",
+      content: "드로워가 열리고 닫히면서 본문 폭이 변하거나, 오버레이가 덮였다 사라지거나, 스크롤 잠금이 풀리며 스크롤바가 되돌아와 내용이 옆으로 밀려요.",
+    },
+    {
+      title: "그다음 입력 이벤트가 없다",
+      content: "닫힘이 즉시라 마우스를 움직일 틈이 없어요. 판정을 갱신할 트리거 자체가 안 들어오는 거예요.",
+    },
+  ]}
+/>
+
+두 번째 조건에서 대표적인 게 스크롤 잠금이에요. 드로워를 열 때 `overflow: hidden` 을 걸면 스크롤바가 사라지면서 본문이 통째로 옆으로 밀려요. 버튼도 같이 움직이고요. 드로워를 [dialog 나 popover](/posts/dialog-and-popover-modal-as-standard)로 만들었어도 스크롤 잠금을 직접 걸었다면 똑같이 겪어요.
+
+이 증상에는 사촌이 하나 있어요. 터치 기기에서 탭한 요소가 계속 hover 로 남는 현상이요. [MDN 은 `:hover` 문서](https://developer.mozilla.org/en-US/docs/Web/CSS/:hover)에서 브라우저에 따라 아예 매칭되지 않거나, 잠깐만 매칭되거나, 사용자가 다른 요소를 터치할 때까지 계속 매칭될 수 있다고 적어뒀어요.<Cite id="mdn-hover" /> 원인이 같아요. hover 를 푸는 트리거가 포인터 이동인데, 그 이동이 영영 안 오는 거죠.
+
+그래서 hover 스타일을 `@media (hover: hover)` 로 감싸는 습관이 도움이 돼요. 다만 이 미디어 쿼리는 주 포인팅 디바이스 하나만 보기 때문에, 터치와 마우스를 같이 쓰는 노트북에서는 판정이 어긋날 수 있어요.<Cite id="mq5-hover" />
+
+## 포인터 아래를 직접 다시 물어보기
+
+확실하게 고치려면 브라우저에게 맡겨둔 판정을 가져와야 해요. [`Document.elementFromPoint()`](https://developer.mozilla.org/en-US/docs/Web/API/Document/elementFromPoint) 는 주어진 좌표에서 히트 테스트가 찾아낼 최상위 요소를 돌려주는 메서드예요. 브라우저가 클릭 대상을 고를 때 쓰는 규칙과 같은 규칙을 따르고, `pointer-events` 로 제외된 요소는 건너뛰고 그 아래 요소를 반환해요.<Cite id="mdn-element-from-point" />
+
+마지막 포인터 좌표를 기억해뒀다가, 레이아웃이 바뀐 직후에 그 좌표를 다시 물어보면 됩니다. `:hover` 대신 클래스로 색을 칠하고요.
+
+<CodePlayground
+  code={`function HoverFixed() {
+    const [moved, setMoved] = React.useState(false);
+    const [hovered, setHovered] = React.useState(false);
+    const pointer = React.useRef({ x: -1, y: -1 });
+    const buttonRef = React.useRef(null);
+
+    const track = (event) => {
+      pointer.current = { x: event.clientX, y: event.clientY };
+    };
+
+    React.useLayoutEffect(() => {
+      const { x, y } = pointer.current;
+      if (x < 0) return;
+      const under = document.elementFromPoint(x, y);
+      const button = buttonRef.current;
+      setHovered(Boolean(button && under && button.contains(under)));
+    }, [moved]);
+
+    return (
+      <div className="stage" onPointerMove={track}>
+        <button
+          ref={buttonRef}
+          className={
+            (moved ? "trigger trigger--moved" : "trigger") +
+            (hovered ? " is-hover" : "")
+          }
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
+          onClick={() => setMoved(!moved)}
+        >
+          {moved ? "제자리로" : "누르면 옆으로"}
+        </button>
+        <p className="hint">
+          이번엔 마우스를 고정해도 색이 같이 풀려요. 레이아웃이 바뀐 직후에 좌표를
+          다시 물어보거든요.
+        </p>
+      </div>
+    );
+  }`}
+  css={`.stage {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 24px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    font-family: system-ui, sans-serif;
+  }
+
+  .trigger {
+    align-self: flex-start;
+    margin-left: 0;
+    padding: 10px 18px;
+    border: 1px solid #6366f1;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #4338ca;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .trigger.is-hover {
+    background: #4338ca;
+    color: #ffffff;
+  }
+
+  .trigger--moved {
+    margin-left: 220px;
+  }
+
+  .hint {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.6;
+  }`}
+  template="react"
+/>
+
+`useLayoutEffect` 를 쓴 건 DOM 이 바뀐 뒤 화면에 그려지기 전에 판정을 끝내려는 거예요. `useEffect` 로 하면 잘못된 색이 한 프레임 스쳐 지나갑니다. 이 둘의 실행 시점 차이는 [useEffect 와 useLayoutEffect 사이](/posts/useeffect-vs-uselayouteffect-decision)에서 따로 정리했어요.
+
+값은 확실한데 비용이 있어요. CSS 가 공짜로 해주던 hover 를 컴포넌트 상태로 끌어올린 거라, 그 버튼은 이제 `:hover` 셀렉터로 스타일링할 수 없어요. 디자인 시스템의 공용 버튼에 이걸 다 넣으면 관리가 금방 무거워집니다. 그래서 저는 실제로 문제가 터지는 한두 개 트리거에만 붙이는 쪽을 택했어요.
+
+더 싼 처방부터 시도해 볼 만해요. 앞에서 실측한 그 한 줄이 제일 쌉니다. 레이아웃을 바꾼 직후에 위치를 한 번 읽어주면 브라우저가 그 자리에서 히트 테스트를 다시 하면서 hover 를 놓아줘요.
+
+```js
+closeDrawer();
+trigger.getBoundingClientRect(); // 레이아웃을 강제로 확정
+```
+
+공짜는 아니에요. 이 한 줄이 바로 강제 리플로우고, 스크롤 핸들러나 리스트 렌더링 루프 안에 들어가면 프레임을 통째로 삼키는 그 동작이에요. 드로워를 닫는 순간처럼 한 번만 지나가는 자리라면 값이 싸지만, 반복되는 경로에 넣으면 hover 하나 고치려다 프레임을 잃어요. 그리고 제가 재본 건 Chromium 뿐이라 다른 엔진도 같은지는 직접 확인하셔야 해요.
+
+스크롤 잠금 때문에 내용이 밀리는 게 원인이라면 애초에 안 밀리게 하는 게 제일 깔끔해요. `scrollbar-gutter: stable` 로 스크롤바 자리를 미리 비워두면 드로워를 열고 닫아도 폭이 그대로예요. 레이아웃이 안 움직이면 hover 판정도 낡을 일이 없거든요.
+
+<Callout variant="warning">
+`pointer-events: none` 으로 덮어보려는 시도는 이 문제를 못 고쳐요. 이 속성은 요소가 포인터 이벤트의 대상이 될 수 있는지를 정할 뿐이고, 값을 `none` 으로 줘도 서브트리는 다른 값을 지정해 다시 대상이 될 수 있어요.<Cite id="mdn-pointer-events" /> 이미 굳어버린 hover 판정을 되돌리는 기능이 아니에요.
+
+</Callout>
+
+## 자주 묻는 질문
+
+<FAQ
+  items={[
+    {
+      question: "남아 있는 게 hover 가 맞나요? focus 일 수도 있지 않나요?",
+      answer:
+        "클릭한 버튼에는 포커스도 같이 남기 때문에 헷갈리기 쉬워요. 개발자 도구 콘솔에서 해당 요소를 잡아 matches(':hover') 를 찍어보면 바로 갈립니다. false 인데 색이 남아 있으면 hover 가 아니라 포커스 스타일이고, 그건 :focus 를 :focus-visible 로 바꾸면 마우스 클릭에서는 사라져요.",
+    },
+    {
+      question: "브라우저 버그인가요, 명세대로 동작하는 건가요?",
+      answer:
+        "CSS 쪽만 보면 명세 위반이 아니에요. 상태에 어떻게 들어가고 나오는지를 CSS 가 정의하지 않았으니까요. 다만 Pointer Events 명세는 같은 상황에서 pointerout 과 mouseout 을 쏘도록 요구하고 있어서, 이벤트가 아예 안 날아온다면 그건 따져볼 만한 동작이에요.",
+    },
+    {
+      question: "React 말고 순수 자바스크립트에서도 같나요?",
+      answer:
+        "같아요. 프레임워크와 무관한 브라우저 판정 문제라서 그래요. 레이아웃을 바꾸는 코드 바로 뒤에서 마지막 포인터 좌표로 elementFromPoint 를 한 번 호출하고 클래스를 직접 갱신하면 됩니다.",
+    },
+  ]}
+/>
+
+`:hover` 는 브라우저가 매 프레임 다시 재는 값이 아니라 입력이 올 때만 갱신되는 상태예요. 그래서 포인터를 멈춰둔 채 요소를 움직이면 판정이 낡고, 그 낡은 판정이 다음 페인트에 그대로 실려 나갑니다. 드로워를 여닫을 때 레이아웃을 흔들지 않는 게 첫 번째 방어고, 흔들어야만 한다면 포인터 아래를 직접 다시 물어보면 돼요.
+
+<References
+  items={[
+    {
+      id: "pointerevents-out",
+      title: "W3C - Pointer Events (Working Draft)",
+      href: "https://www.w3.org/TR/pointerevents4/#pointerout",
+      description: "레이아웃 변경으로 히트 테스트 경계가 이동했을 때 pointerout 과 mouseout 의 발화 조건",
+    },
+    {
+      id: "css21-dynamic-pseudo",
+      title: "W3C - CSS 2.1 The dynamic pseudo-classes",
+      href: "https://www.w3.org/TR/CSS21/selector.html#dynamic-pseudo-classes",
+      description: "상태 진입과 이탈을 CSS 가 정의하지 않는다는 문장, 의사 클래스 전이에 리플로우 의무가 없다는 문장",
+    },
+    {
+      id: "selectors3-hover",
+      title: "W3C - Selectors Level 3 user action pseudo-classes",
+      href: "https://www.w3.org/TR/css3-selectors/#the-user-action-pseudo-classes-hover-act",
+      description: "hover 가 좌표가 아니라 지목(designate)으로 정의된다는 원문",
+    },
+    {
+      id: "mdn-hover",
+      title: "MDN - CSS `:hover`",
+      href: "https://developer.mozilla.org/en-US/docs/Web/CSS/:hover",
+      description: "터치 기기에서 hover 가 계속 남을 수 있다는 주의사항",
+    },
+    {
+      id: "mdn-element-from-point",
+      title: "MDN - Document.elementFromPoint()",
+      href: "https://developer.mozilla.org/en-US/docs/Web/API/Document/elementFromPoint",
+      description: "히트 테스트 기준 반환값, pointer-events 로 제외된 요소 처리, 뷰포트 밖 좌표의 null 반환",
+    },
+    {
+      id: "mdn-pointer-events",
+      title: "MDN - CSS `pointer-events`",
+      href: "https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/pointer-events",
+      description: "none 값의 정의와 서브트리가 다시 대상이 될 수 있다는 단서",
+    },
+    {
+      id: "mq5-hover",
+      title: "W3C - Media Queries Level 5 hover and pointer",
+      href: "https://www.w3.org/TR/mediaqueries-5/#hover",
+      description: "hover 와 pointer 미디어 피처가 주 포인팅 디바이스 하나만 기준으로 삼는다는 정의",
+    },
+  ]}
+/>
