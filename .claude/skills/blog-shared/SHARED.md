@@ -1118,7 +1118,51 @@ published: true
   { question: "X 는 무엇인가요?", answer: "한두 문장 직접 답." },
   { question: "Y 는 왜 그런가요?", answer: "결론 한 문장 + 부연 한 문장." }
 ]} />
+
+<Preview src="/posts/<slug>/<파일명>.png" alt="화면에 무엇이 보이는지 서술" />
 ```
+
+### §MDX-PREVIEW — 본문 이미지는 Preview 로
+
+본문에 이미지를 넣을 때는 `<Preview />` 를 씁니다. 클릭하면 라이트박스로 확대돼요.
+
+```mdx
+<Preview
+  src="/posts/hover-state-stuck-after-layout-change/stuck-hover-demo.gif"
+  alt="레이아웃이 바뀐 뒤에도 원래 자리에 hover 색이 남아 있는 화면 녹화"
+/>
+```
+
+**필수 prop**
+
+- `src` — `/posts/<slug>/<파일명>.<ext>` 형태의 절대 경로
+- `alt` — 화면에 무엇이 보이는지 서술
+
+**선택 prop**
+
+- `width`, `height` — 치수를 아는 이미지면 넘겨서 CLS 를 막는다
+
+**이미지 파일 위치**: `public/posts/<slug>/<파일명>.<ext>` (§FILE-LAYOUT)
+
+포스트 slug 로 폴더를 만들고 그 안에 넣습니다. 파일명에 slug 를 접두사로 붙이지
+않아요. 폴더가 이미 slug 라서 중복입니다. `image-1` 같은 순번 대신 내용을
+설명하는 이름을 씁니다.
+
+```
+public/posts/hover-state-stuck-after-layout-change/stuck-hover-demo.gif
+```
+
+**alt 품질**: "demo", "이미지", "스크린샷" 같은 값은 위반입니다. 라이트박스를 여는
+트리거 버튼의 접근 이름이 `alt` 에서 만들어지기 때문에, 무의미한 alt 는 스크린리더
+사용자에게 아무 정보도 주지 못해요.
+
+**raw `<img>` 와 마크다운 `![]()` 금지**: `mdxComponents` 가 `img` 를 Preview 로
+자동 매핑하고 있어 렌더 자체는 되지만, 명시적으로 `<Preview />` 를 쓰는 게
+규약입니다.
+
+단, **예제 코드 안의 `<img>` 는 예외** 입니다. 펜스 코드블록, `CodePlayground` 의
+`code` / `css` 템플릿 리터럴, 인라인 코드 스팬(`` `<img>` ``) 안에 있는 것은 본문
+이미지가 아니라 설명 대상이라 이 규칙이 적용되지 않아요.
 
 ### §MDX-ANIMATEDSTEP — AnimatedStep title 번호 금지
 
@@ -1323,6 +1367,7 @@ grep -nE 'title:\s*"Step\s*[0-9]' <file>
 
 - **단편**: `content/posts/<slug>.mdx`
 - **시리즈**: `content/posts/<seriesSlug>/<partSlug>.mdx`
+- **본문 이미지**: `public/posts/<slug>/<파일명>.<ext>` (§MDX-PREVIEW)
 - slug는 **영문 kebab-case**
 - 기존 파일 덮어쓰기 금지. 경로 충돌 시 사용자 확인 후 진행
 - 시리즈 디렉토리가 없으면 만들고, 한 편씩 차례로 저장

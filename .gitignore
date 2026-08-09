@@ -79,6 +79,9 @@ content/posts/.tmp/
 # claude
 CLAUDE.local.md
 
+# 설계/구현 계획 문서 (로컬 참고용)
+docs/superpowers/
+
 # service worker (pnpm build-sw / prepare)
 /public/sw.js
 lib/sw-precache.generated.ts

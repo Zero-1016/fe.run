@@ -8,6 +8,7 @@ import { FlowDiagram } from "@/components/ui/flow-diagram";
 import { References } from "@/components/ui/references";
 import { Cite } from "@/components/ui/cite";
 import { FAQ } from "@/components/ui/faq";
+import { Preview } from "@/components/ui/preview";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { CodeBlock } from "@/components/mdx/code-block";
 
@@ -38,6 +39,7 @@ export const mdxComponents: MDXComponents = {
   h2: (props) => <Heading level={2} {...props} />,
   h3: (props) => <Heading level={3} {...props} />,
   pre: (props) => <CodeBlock>{<pre {...props} />}</CodeBlock>,
+  img: Preview,
   table: Table,
   thead: THead,
   tbody: TBody,
@@ -52,4 +54,5 @@ export const mdxComponents: MDXComponents = {
   References,
   Cite,
   FAQ,
+  Preview,
 };

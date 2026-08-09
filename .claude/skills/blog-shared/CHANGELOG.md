@@ -1269,3 +1269,77 @@ validator Phase 4-1 을 글자 그대로 적용하면 References 가 전부 공�
 출처 0개 → 4개로 통과. velite 통과.
 
 ---
+
+## 2026-08-10
+
+### .backups 유지보수 — 30일 초과 백업 정리
+
+**변경**: `.claude/skills/blog-shared/.backups/` 에서 30일 초과 백업 5개 삭제
+(244K 회수). 7개 → 2개.
+
+삭제 목록:
+
+- `SHARED-20260518-141629.md` (60K)
+- `SHARED-20260609-231544.md` (64K)
+- `SHARED-20260610-140950.md` (68K)
+- `blog-revise-SKILL-20260518-141629.md` (24K)
+- `blog-writer-SKILL-20260518-141629.md` (28K)
+
+유지 (컷오프 20260711 이후):
+
+- `domains-20260731-031908.md`
+- `domains-20260808-234455.md`
+
+**이유**: 정기 유지보수 (시나리오 D). 직전 domains.md 수정 작업 때 30일 초과분이
+누적된 걸 확인하고 사용자가 정리를 요청.
+
+**수정 유형**: 유지보수 (파일 삭제, 규칙 변경 없음)
+
+**안전성 확인**: 삭제된 백업이 대상으로 삼던 원본 3개 (`SHARED.md`,
+`blog-revise/SKILL.md`, `blog-writer/SKILL.md`) 가 전부 현존하고 git 추적 중임을
+확인 (각각 18 / 5 / 14개 커밋). `.backups/` 는 `.gitignore:71` 로 무시되므로
+삭제가 커밋에 영향 없음.
+
+**영향 범위**: 없음. 백업 디렉토리는 어떤 skill 도 참조하지 않고, 규칙·설정 파일은
+변경되지 않음.
+
+---
+
+### SHARED.md §MDX-PREVIEW 신설 + validator 3-4 추가 — 본문 이미지 규칙
+
+**변경**:
+
+- `SHARED.md` §MDX-COMPONENTS 코드 목록에 `<Preview />` 추가
+- `SHARED.md` 에 `### §MDX-PREVIEW` 신설 (§MDX-COMPONENTS 하위, §MDX-ANIMATEDSTEP 앞)
+- `SHARED.md` §FILE-LAYOUT 에 본문 이미지 경로 `public/posts/<slug>/<파일명>.<ext>` 추가
+- `blog-validator/SKILL.md` Phase 3 에 `3-4. Preview 규칙` 추가, 전제 로드 목록에
+  `§MDX-PREVIEW` 추가
+
+**이유**: `components/ui/preview.tsx` 를 새로 만들어 `mdx-components.tsx` 에
+`Preview` 로 등록하고 `img` 도 자동 매핑했다. 이미지 파일은 포스트별 폴더로
+정리했다 (`public/assets/images/` 평면 구조 → `public/posts/<slug>/`). 규칙이
+없으면 writer 가 이 규약을 모르고 validator 도 검사하지 못한다.
+
+**수정 유형**: 새 규칙 섹션 추가 + 새 검사 항목 추가
+
+**영향 범위**:
+
+- blog-writer: §MDX-COMPONENTS / §FILE-LAYOUT 참조 (자동 반영, 수정 불필요)
+- blog-validator: Phase 3 에 검사 1건 추가
+- blog-write / blog-revise: §FILE-LAYOUT 만 참조, 영향 없음
+
+**오탐 방지 조항**: 기존 글 3건(`image-formats-when-to-use`,
+`data-url-when-to-use`, `core-web-vitals-images-fonts`)이 `<img>` 를 **예제
+코드로** 쓰고 있다. 전부 `CodePlayground code={...}` 또는 펜스 코드블록 안이다.
+그래서 규칙과 validator 3-4 양쪽에 "펜스 코드블록 / CodePlayground code·css /
+인라인 코드 스팬 제외" 조항을 명시했다. 이 조항이 없으면 세 글이 전부 오탐으로
+잡힌다.
+
+**백업**: `.backups/SHARED-20260810-014901.md`,
+`.backups/blog-validator-SKILL-20260810-014901.md`
+
+**재검증 결과**: `hover-state-stuck-after-layout-change.mdx` 를 새 `<Preview />`
+표기로 전환. `pnpm lint` / `pnpm build` 통과, Playwright 로 라이트박스 동작 10건
+검증 통과.
+
+---

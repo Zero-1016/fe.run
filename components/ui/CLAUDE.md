@@ -271,6 +271,50 @@ interface VideoEmbedProps {
 
 ---
 
+## Preview
+
+본문 이미지. 클릭하면 라이트박스로 확대된다. 스크린샷, 데모 GIF, 다이어그램
+이미지 등 본문에 들어가는 모든 이미지에 사용.
+
+```typescript
+interface PreviewProps {
+  src: string; // /posts/<slug>/<파일명> 형태의 절대 경로
+  alt: string; // 필수. 이미지가 무엇을 보여주는지 서술
+  width?: number | string; // 선택: 치수를 알면 넘겨서 CLS 방지
+  height?: number | string;
+  className?: string; // 선택: 이미지 자체에 붙는 클래스
+}
+```
+
+```mdx
+<Preview
+  src="/posts/hover-state-stuck-after-layout-change/stuck-hover-demo.gif"
+  alt="레이아웃이 바뀐 뒤에도 원래 자리에 hover 색이 남아 있는 화면 녹화"
+/>
+```
+
+**이미지 파일 위치**: `public/posts/<slug>/<파일명>.<ext>`
+
+포스트 slug 로 폴더를 만들고 그 안에 넣는다. 폴더가 이미 slug 이므로 파일명에
+slug 를 접두사로 붙이지 않는다. `image-1` 같은 순번 대신 내용을 설명하는 이름을
+쓴다.
+
+```
+public/posts/hover-state-stuck-after-layout-change/stuck-hover-demo.gif
+```
+
+**주의**:
+
+- raw `<img>` 태그와 마크다운 `![alt](src)` 는 쓰지 않는다. `mdxComponents` 가
+  `img` 를 Preview 로 자동 매핑하고 있어 렌더는 되지만, 명시적으로 `<Preview />`
+  를 쓰는 게 규약이다.
+- `alt` 는 "demo", "이미지" 같은 말이 아니라 화면에 무엇이 보이는지를 서술한다.
+  라이트박스 트리거 버튼의 접근 이름도 `alt` 에서 만들어진다.
+- `next/image` 를 쓰지 않는다. 애니메이션 GIF 는 Next 이미지 최적화가 우회되고,
+  마크다운 자동 매핑 경로에서는 치수가 넘어오지 않기 때문이다.
+
+---
+
 ## FlowDiagram
 
 노드와 엣지로 구성된 다이어그램. 자바스크립트 동작 과정, 데이터 흐름, 시스템

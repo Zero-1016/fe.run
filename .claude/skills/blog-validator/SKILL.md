@@ -34,7 +34,7 @@ tools:
 - `§RULE-LINK-PATH` — 내부 링크 경로 규칙
 - `§RULE-REFERENCES`, `§RULE-CITE`, `§SOURCE-PRIORITY` — References 정합성
 - `§FRONTMATTER` — frontmatter 스키마
-- `§MDX-COMPONENTS`, `§MDX-ANIMATEDSTEP`, `§MDX-CODEPLAYGROUND`, `§MDX-CHECKLIST`, `§MDX-JSX-BALANCE` — 컴포넌트 규칙
+- `§MDX-COMPONENTS`, `§MDX-ANIMATEDSTEP`, `§MDX-CODEPLAYGROUND`, `§MDX-CHECKLIST`, `§MDX-JSX-BALANCE`, `§MDX-PREVIEW` — 컴포넌트 규칙
 - `§FILE-LAYOUT` — 파일 경로 규칙
 - `§UI-USER-CHOICE` — 사용자 선택지 반환 형식 (오케스트레이터에게 전달 시)
 
@@ -476,6 +476,38 @@ css prop 분리는 문맥 판단 필요).
 아니면 **중간에 잘린 듯한** 글. 에러.
 
 **자동 수정 불가** — writer 재실행 필요.
+
+### 3-4. Preview 규칙 (§MDX-PREVIEW)
+
+**SHARED.md §MDX-PREVIEW Read**.
+
+**검사 전 제외 범위 확정** (먼저 하지 않으면 오탐이 대량 발생):
+
+- 펜스 코드블록 (` ``` ` 로 열고 닫는 구간) 안
+- `CodePlayground` 의 `code={...}` / `css={...}` 템플릿 리터럴 안
+- 인라인 코드 스팬 (`` `<img>` ``) 안
+
+이미지·성능 주제 글은 `<img>` 를 예제로 다루는 게 정상이라, 위 구간은 본문
+이미지가 아니라 설명 대상입니다. 제외 후 남은 것만 검사.
+
+**검사 항목**:
+
+- raw `<img>` 태그 또는 마크다운 `![alt](src)` 검출 → 에러
+- `<Preview>` 의 `src` 가 `/posts/<slug>/` 로 시작하지 않음 → 에러
+- `src` 경로에 실제 파일이 없음 (`public/` 기준 glob) → 에러
+- `alt` 누락, 빈 문자열, 또는 "demo" / "이미지" / "스크린샷" / "image" 같은
+  무의미한 값 → 에러
+
+**자동 수정 가능**:
+
+- raw `<img src alt />` → `<Preview src alt />` 로 태그 치환 (prop 은 그대로 옮김)
+- 마크다운 `![alt](src)` → `<Preview src="..." alt="..." />` 로 치환
+
+**사용자 확인 필요**:
+
+- `src` 경로가 규칙과 다름 → 파일을 옮길지, 경로만 고칠지 판단 필요
+- 파일이 실존하지 않음 → 경로 오타인지 파일 누락인지 판단 필요
+- `alt` 가 무의미함 → 대체 문구는 이미지 내용을 봐야 정할 수 있음
 
 ---
 
