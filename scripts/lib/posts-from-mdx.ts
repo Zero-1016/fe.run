@@ -58,6 +58,11 @@ function parseFrontmatter(source: string): Record<string, unknown> | null {
 function walkMdx(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
+    // .backups/ 같은 점 디렉토리는 건너뛴다. velite 의 posts/**/*.mdx 는 점으로
+    // 시작하는 경로를 안 잡아서, 여기서 주우면 사이트에 없는 글이 sitemap 에만
+    // 올라가 404 로 남는다.
+    if (entry.startsWith(".")) continue;
+
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
       out.push(...walkMdx(full));

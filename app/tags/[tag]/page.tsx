@@ -36,6 +36,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title,
     description,
     keywords: [decoded],
+    // 글 1편짜리 태그 페이지는 그 글의 카드 하나가 전부라 사실상 중복이다.
+    // follow 는 남겨서 링크는 계속 흘려보내되 색인 경쟁에서만 뺀다.
+    ...(count === 1 ? { robots: { index: false, follow: true } } : {}),
     alternates: { canonical },
     openGraph: {
       type: "website",

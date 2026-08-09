@@ -4,6 +4,9 @@ import { type PostMeta, readPostsFromMdx } from "./lib/posts-from-mdx";
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://frontend.run").replace(/\/$/, "");
 
+/** sitemap 에 태그 페이지를 올릴 최소 글 수. 이 값을 바꾸면 tags/[tag]/page.tsx 의 noindex 조건도 함께 맞춰야 한다. */
+const TAG_SITEMAP_MIN_POSTS = 2;
+
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -30,6 +33,7 @@ function buildSitemap(posts: PostMeta[]): string {
 
   const urls: { loc: string; lastmod: string }[] = [
     { loc: `${SITE_URL}/`, lastmod: latestSiteLastmod },
+    { loc: `${SITE_URL}/posts`, lastmod: latestSiteLastmod },
     { loc: `${SITE_URL}/tags`, lastmod: latestSiteLastmod },
     { loc: `${SITE_URL}/series`, lastmod: latestSiteLastmod },
   ];
@@ -53,14 +57,19 @@ function buildSitemap(posts: PostMeta[]): string {
   }
 
   const tagLatest = new Map<string, string>();
+  const tagCount = new Map<string, number>();
   for (const post of posts) {
     const lm = postLastmod(post);
     for (const tag of post.tags) {
       const prev = tagLatest.get(tag);
       if (!prev || lm > prev) tagLatest.set(tag, lm);
+      tagCount.set(tag, (tagCount.get(tag) ?? 0) + 1);
     }
   }
   for (const [tag, lastmod] of tagLatest) {
+    // 글 1편짜리 태그는 그 글의 중복이라 색인 요청을 하지 않는다.
+    // (app/tags/[tag]/page.tsx 가 같은 조건으로 noindex,follow 를 붙인다)
+    if ((tagCount.get(tag) ?? 0) < TAG_SITEMAP_MIN_POSTS) continue;
     urls.push({ loc: `${SITE_URL}/tags/${encodeURIComponent(tag)}`, lastmod });
   }
 
@@ -75,7 +84,10 @@ function buildSitemap(posts: PostMeta[]): string {
 }
 
 function buildRobots(): string {
-  return `User-agent: *\nAllow: /\n\nDisallow: /og\nDisallow: /api\n\nSitemap: ${SITE_URL}/sitemap.xml\n`;
+  // /og 는 막지 않는다. og:image 가 ${SITE_URL}/og/<slug> 라서,
+  // Disallow 를 걸면 크롤러가 미리보기 이미지를 못 가져온다.
+  // /settings 는 noindex 메타로 처리한다. robots 로 막으면 그 메타를 못 읽는다.
+  return `User-agent: *\nAllow: /\n\nDisallow: /api\n\nSitemap: ${SITE_URL}/sitemap.xml\n`;
 }
 
 function buildLlmsTxt(posts: PostMeta[]): string {
