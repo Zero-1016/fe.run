@@ -1,0 +1,240 @@
+---
+title: "하던 일을 멈추지 않는 핫픽스"
+description: "저장소를 한 벌 더 clone 하는 것과 worktree 로 늘리는 것의 차이예요."
+date: 2026-08-13
+tags: ["Git", "worktree", "브랜치", "CLI", "협업"]
+published: true
+---
+
+기능 하나를 반쯤 만들어둔 상태에서 핫픽스 요청이 들어와요. 하던 걸 stash 하고, 브랜치를 갈아타고, 빌드 산출물이 꼬여서 개발 서버를 다시 띄우죠. [git worktree](https://git-scm.com/docs/git-worktree) 는 브랜치를 갈아타는 대신 저장소 하나에 작업 디렉토리를 하나 더 붙여줘요.
+
+## 핫픽스가 들어오면 하던 일이 멈춘다
+
+브랜치를 옮기는 명령 자체는 몇 초예요. 진짜 비용은 그 뒤에 붙어요. 브랜치마다 의존성이 다르면 `node_modules` 를 다시 깔아야 하고, `.next` 나 `dist` 같은 빌드 캐시는 통째로 무효가 되죠. 리뷰 요청까지 겹치면 이 왕복을 하루에 몇 번씩 하게 돼요.
+
+저는 이게 싫어서 저장소를 한 벌 더 clone 해둔 적이 있어요. 근데 그러면 커밋이 양쪽으로 흩어져요. 한쪽에서 만든 브랜치를 다른 쪽에서 보려면 remote 를 한 번 거쳐야 하고요.
+
+worktree 는 그 중간이에요. 커밋과 브랜치가 담긴 저장소는 한 벌만 두고, 작업 디렉토리만 여러 개 만들어요. git 은 `git init` 이나 `git clone` 이 만든 첫 디렉토리를 메인 작업 디렉토리라고 부르고, 거기에 이어 붙이는 걸 연결된 작업 디렉토리라고 불러요.<Cite id="git-worktree-docs" />
+
+## 두 번째 작업 디렉토리 만들기
+
+명령은 한 줄이에요.
+
+```bash
+# 저장소 옆 hotfix 디렉토리에 hotfix 브랜치를 새로 만들기
+git worktree add ../hotfix
+
+# 이미 있는 브랜치나 원격 브랜치를 열 때
+git worktree add ../review origin/feature-login
+
+# 브랜치를 만들지 않고 특정 커밋만 잠깐 볼 때
+git worktree add --detach ../bisect HEAD~10
+```
+
+경로만 주면 git 이 마지막 디렉토리 이름을 브랜치 이름으로 삼아요. `../hotfix` 라고 쓰면 `hotfix` 브랜치가 없을 때는 HEAD 를 기준으로 새로 만들고, 이미 있으면 그 브랜치를 체크아웃해요. 새 브랜치를 명시하고 싶으면 `-b`, 같은 이름이 있어도 덮어쓰려면 `-B` 를 씁니다.
+
+만들어둔 목록은 `list` 로 봐요.
+
+```bash
+$ git worktree list
+/Users/me/project   9a1f0c2 [main]
+/Users/me/hotfix    3b7d81e [hotfix]
+/Users/me/bisect    5c2a940 (detached HEAD)
+```
+
+잠겨 있거나 정리 대상인 디렉토리에는 `locked`, `prunable` 같은 꼬리표가 함께 붙어요. 스크립트로 파싱할 거면 포맷이 고정된 `--porcelain` 쪽을 쓰세요.
+
+메이저 버전 두 개를 동시에 유지하는 상황이면 특히 잘 맞아요. v1 과 v2 를 나란히 두고 빌드까지 각각 돌려봐야 하는 이유는 [지난 글](/posts/dual-major-support-vs-backporting)에서 다뤘어요.
+
+## 같은 브랜치를 두 번 열 수 없는 이유
+
+worktree 를 쓰기 시작하면 평소 안 보던 거절 메시지를 만나요. 같은 브랜치를 두 디렉토리에서 동시에 체크아웃하는 건 기본적으로 막혀 있거든요.<Cite id="git-worktree-docs" />
+
+<Callout variant="info">
+"By default, `add` refuses to create a new worktree when `<commit-ish>` is a branch name and is already checked out by another worktree." - git-worktree(1)
+
+이미 다른 디렉토리가 잡고 있는 브랜치면 add 가 그 자리에서 거절해요.
+
+</Callout>
+
+문서가 왜 막는지까지 적어두진 않았는데, 인덱스가 따로라는 걸 보면 짐작이 가요. 작업 디렉토리는 저마다 자기 `HEAD` 와 자기 인덱스를 갖는데, 브랜치는 한 개거든요. 두 디렉토리가 같은 브랜치를 잡으면 한쪽에서 커밋할 때마다 다른 쪽은 자기가 만들지도 않은 커밋 위에 얹혀 있게 돼요.
+
+이 규칙은 worktree 명령 안에서만 걸리는 게 아니에요. 평소처럼 `git switch` 로 브랜치를 옮기려 해도, 그 브랜치를 다른 작업 디렉토리가 잡고 있으면 거절당해요. 뚫는 옵션이 `--ignore-other-worktrees` 하나 있는데, 이름 그대로 안전장치를 끄는 거라 습관처럼 쓸 만한 건 아니에요.<Cite id="git-switch-docs" />
+
+## `.git` 안에서 벌어지는 일
+
+연결된 작업 디렉토리로 들어가서 `.git` 을 열어보면 디렉토리가 아니라 텍스트 파일이에요.
+
+```bash
+$ cat ../hotfix/.git
+gitdir: /Users/me/project/.git/worktrees/hotfix
+```
+
+한 줄짜리 이정표죠. 실제 관리 파일은 메인 저장소 안쪽의 `.git/worktrees/<이름>/` 에 모여 있어요. 그 안에 이 디렉토리만의 `HEAD` 와 `index` 가 있고, 원래 자리로 돌아가는 `gitdir` 과 `commondir` 이 함께 들어 있어요.<Cite id="git-repo-layout" />
+
+<FlowDiagram
+  height={340}
+  caption="작업 디렉토리 두 개가 저장소 한 벌을 나눠 쓰는 구조"
+  nodes={[
+    {
+      id: "main",
+      title: "메인 작업 디렉토리",
+      description: "project 폴더와 그 안의 .git",
+      x: 0,
+      y: 0,
+      kind: "accent",
+    },
+    {
+      id: "linked",
+      title: "연결된 작업 디렉토리",
+      description: "hotfix 폴더와 한 줄짜리 .git 파일",
+      x: 0,
+      y: 190,
+    },
+    {
+      id: "meta",
+      title: ".git/worktrees/hotfix",
+      description: "이 디렉토리만의 HEAD 와 index",
+      x: 340,
+      y: 190,
+      kind: "warning",
+    },
+    {
+      id: "common",
+      title: "공용 저장소",
+      description: "objects, refs, config, hooks",
+      x: 540,
+      y: 95,
+      kind: "success",
+    },
+  ]}
+  edges={[
+    { from: "main", to: "common", label: "바로 안에 품고 있음" },
+    { from: "linked", to: "meta", label: "gitdir 로 가리킴" },
+    { from: "meta", to: "common", label: "commondir 로 이어짐", animated: true },
+  ]}
+/>
+
+무엇이 공용이고 무엇이 따로인지는 이렇게 갈려요.
+
+| 항목                                | 어디에 있나              |
+| ----------------------------------- | ------------------------ |
+| `objects/`, `refs/`, `packed-refs`  | 공용, 한 벌만 존재       |
+| `config`, `hooks/`, `remotes/`      | 공용                     |
+| `HEAD`, `index`, `logs/HEAD`        | 작업 디렉토리마다 따로   |
+| `refs/bisect/`, `refs/worktree/`    | 공용 자리에 있지만 따로  |
+
+줄이면 커밋과 브랜치는 나눠 쓰고, 지금 어디를 보고 있는지는 각자 가져요. 그래서 한쪽에서 만든 커밋이 다른 쪽 `git log` 에 바로 보이고, fetch 도 push 도 한 번만 하면 돼요.
+
+반대로 git 이 추적하지 않는 것들은 하나도 따라오지 않아요. `node_modules` 나 `.next` 는 저장소 바깥이라 디렉토리마다 새로 만들어져요. 문서에 적힌 규칙이라기보다 구조상 그렇게 되는 거예요.
+
+## 작업 디렉토리마다 다른 설정 주기
+
+방금 표에서 `config` 가 공용이라고 했죠. 그래서 sparse checkout 처럼 디렉토리마다 다르게 두고 싶은 설정은 그냥 쓰면 전체에 퍼져요. git 은 이걸 확장 기능으로 따로 열어둡니다.
+
+```bash
+git config extensions.worktreeConfig true
+git config --worktree core.sparseCheckout true
+```
+
+확장을 켜면 `--worktree` 로 준 설정이 그 디렉토리 전용 `config.worktree` 파일에 저장돼요. 함정은 확장을 안 켠 상태예요. 이때 `--worktree` 는 에러를 내지 않고 `--local` 과 똑같이 동작해서, 공용 설정을 조용히 건드려요.<Cite id="git-config-docs" />
+
+<Callout variant="warning">
+"Similar to `--local` except that `$GIT_DIR/config.worktree` is read from or written to if `extensions.worktreeConfig` is enabled. If not it's the same as `--local`." - git-config(1)
+
+확장을 켜지 않았다면 `--worktree` 라고 적어도 결국 저장소 전체 설정이 바뀌어요.
+
+</Callout>
+
+## 지울 때가 진짜 함정
+
+작업이 끝나면 디렉토리를 지우죠. 여기서 `rm -rf` 를 쓰면 자국이 남아요.
+
+```bash
+$ rm -rf ../hotfix
+$ git worktree list
+/Users/me/project   9a1f0c2 [main]
+/Users/me/hotfix    3b7d81e [hotfix] prunable
+```
+
+디렉토리는 사라졌는데 `.git/worktrees/hotfix` 는 그대로 남아서 목록에 유령처럼 떠요. 더 성가신 건 이게 언제 사라지느냐예요. `git gc` 가 도는 시점에도 바로는 안 없어져요. gc 가 3개월 유예를 붙여서 prune 을 부르거든요.<Cite id="git-gc-docs" />
+
+<Callout variant="warning">
+"When `git gc` is run, it calls `git worktree prune --expire 3.months.ago`." - git-gc(1)
+
+손으로 지운 작업 디렉토리의 관리 파일은 기본값으로 3개월을 더 버텨요.
+
+</Callout>
+
+그래서 정리는 git 명령으로 해요.
+
+```bash
+# 작업 디렉토리와 관리 파일을 함께 정리
+git worktree remove ../hotfix
+
+# 이미 손으로 지워버렸다면 남은 관리 파일만 정리
+git worktree prune
+
+# 옮길 때도 mv 대신 이걸로
+git worktree move ../hotfix ../fix-login
+```
+
+`remove` 는 깨끗한 상태에서만 동작해요. 추적 중인 파일이 수정돼 있거나 untracked 파일이 남아 있으면 거절하고, 정말 버릴 거면 `--force` 를 줘야 해요. 지우기 전에 무심코 만든 로컬 설정 파일이 있는지 한 번 보라는 뜻이죠.
+
+`mv` 로 디렉토리를 옮기는 것도 같은 함정이에요. 아까 본 `.git` 파일과 `gitdir` 이 서로를 절대 경로로 가리키고 있어서, 한쪽만 움직이면 연결이 끊겨요. 이미 끊어버렸다면 `git worktree repair` 로 다시 이어붙일 수 있어요. 메인 쪽에서 실행하면 연결된 디렉토리들을 찾아 고치고, 옮겨진 디렉토리 안에서 실행하면 본체로 가는 길을 고쳐요.
+
+여기까지 오면 핫픽스가 들어와도 원래 작업 디렉토리는 건드릴 일이 없어요. 반쯤 만들어둔 화면도, 띄워둔 개발 서버도 그 자리에 그대로 있죠. 대신 만들 때는 `add` 한 줄이면 끝나지만 치울 때는 손이 아니라 git 을 거쳐야 해요. worktree 를 쓰다가 저장소가 이상해졌다는 이야기는 대부분 여기서 시작돼요.
+
+큰 작업을 작은 PR 로 쪼개서 병행할 때도 잘 어울려요. 브랜치를 여러 개 쌓아 올리는 방식은 [지난 글](/posts/gh-stack-stacked-prs)에서 다뤘는데, 그 브랜치들을 각자의 디렉토리에 펼쳐두면 오가는 비용이 사라져요.
+
+<FAQ
+  items={[
+    {
+      question: "작업 디렉토리를 만들 때마다 node_modules 를 다시 설치해야 하나요?",
+      answer:
+        "네. git 이 추적하지 않는 파일은 공유되지 않아서 디렉토리마다 새로 설치해야 해요. 다만 pnpm 처럼 전역 저장소에 링크를 거는 패키지 매니저를 쓰면 실제 디스크 사용량과 설치 시간은 많이 줄어요.",
+    },
+    {
+      question: "서브모듈이 있는 저장소에서도 써도 되나요?",
+      answer:
+        "git 문서가 서브모듈 지원은 아직 미완성이라고 밝히고 있어요. 서브모듈을 가진 상위 저장소를 여러 벌 체크아웃하는 건 권장하지 않고, 그런 저장소에서는 worktree move 도 동작하지 않아요.",
+    },
+  ]}
+/>
+
+<References
+  items={[
+    {
+      id: "git-worktree-docs",
+      title: "Git - git-worktree(1)",
+      href: "https://git-scm.com/docs/git-worktree",
+      description:
+        "add, list, remove, move, prune 동작과 중복 체크아웃 거부 규칙 확인",
+    },
+    {
+      id: "git-repo-layout",
+      title: "Git - gitrepository-layout(5)",
+      href: "https://git-scm.com/docs/gitrepository-layout",
+      description: "worktrees 디렉토리 구조와 공용으로 쓰이는 파일 목록 확인",
+    },
+    {
+      id: "git-switch-docs",
+      title: "Git - git-switch(1)",
+      href: "https://git-scm.com/docs/git-switch",
+      description: "ignore-other-worktrees 옵션이 무엇을 끄는지 확인",
+    },
+    {
+      id: "git-gc-docs",
+      title: "Git - git-gc(1)",
+      href: "https://git-scm.com/docs/git-gc",
+      description: "gc 가 worktree prune 을 호출하는 시점과 3개월 유예 확인",
+    },
+    {
+      id: "git-config-docs",
+      title: "Git - git-config(1)",
+      href: "https://git-scm.com/docs/git-config",
+      description:
+        "worktree 스코프가 extensions.worktreeConfig 에 따라 달라지는 동작 확인",
+    },
+  ]}
+/>
