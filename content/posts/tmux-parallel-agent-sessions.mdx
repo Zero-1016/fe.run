@@ -1,0 +1,241 @@
+---
+title: "화면을 나눠도 파일은 안 나뉘어요"
+description: "프로세스 수명은 tmux 가, 파일 격리는 git worktree 가 맡아요."
+date: 2026-08-13
+tags: ["tmux", "Claude Code", "AI Agent", "Git", "워크플로우"]
+published: true
+---
+
+에이전트 두 개에 각각 다른 기능을 맡겨 두면 곧 이상한 일이 생겨요. 터미널 창은 분명 따로 열었는데, 한쪽이 방금 고친 파일을 다른 쪽이 덮어쓰거든요. 화면을 나누는 일과 파일을 나누는 일은 서로 다른 계층이고, 앞은 [tmux](https://github.com/tmux/tmux/wiki) 가, 뒤는 [git worktree](https://git-scm.com/docs/git-worktree) 가 맡아요.
+
+## 창을 닫자 에이전트가 같이 죽었다
+
+에이전트에게 일을 맡기는 구조 자체를 어떻게 쪼갰는지는 [지난 글](/posts/blog-agent-flow-rebuild) 에서 다뤘어요. 그 구조를 여러 벌 동시에 굴리려고 하면 제일 먼저 늘어나는 게 터미널 탭이죠.
+
+탭은 두 군데서 무너져요. 창을 닫거나 SSH 연결이 끊기면 그 안에서 돌던 프로세스가 같이 죽고요, 탭을 아무리 늘려도 그건 화면일 뿐이라 작업 디렉토리는 그대로 하나예요. 앞의 문제는 프로세스 수명의 문제고, 뒤의 문제는 파일 격리의 문제라서 해결책도 서로 달라요.
+
+[Claude Code](https://code.claude.com/docs) 공식 문서도 병렬 세션 항목의 목적을 충돌 방지로 못박고 있어요.<Cite id="claude-common-workflows" />
+
+<Callout variant="info">
+"Work on a feature in one terminal while Claude fixes a bug in another, without the edits colliding." - Claude Code Docs
+
+한쪽이 기능을 만드는 동안 다른 쪽이 버그를 잡되, 두 수정이 서로 부딪히지 않는 상태를 말해요. 탭을 늘리는 걸로는 뒷부분이 안 따라옵니다.
+
+</Callout>
+
+## tmux 는 화면이 아니라 프로세스를 붙잡는다
+
+tmux 를 터미널 분할기로만 알고 있으면 절반만 아는 거예요. tmux 를 실행하면 서버 프로세스가 따로 뜨고, 우리가 보는 터미널은 그 서버에 붙은 클라이언트일 뿐이거든요. 둘은 `/tmp` 아래 소켓으로 통신하는 별개 프로세스예요.<Cite id="tmux-man" />
+
+서버 아래 계층은 세 겹이에요. 세션이 작업 단위 하나를 담고, 세션 안에 화면 전체를 차지하는 window 가 있고, 그 window 를 사각형으로 쪼갠 게 pane 이죠. 각 pane 은 pseudo terminal, 그러니까 프로그램 입장에서 진짜 터미널처럼 보이는 가상 장치를 하나씩 물고 있어요. pane 마다 독립된 셸이 도니까, 에이전트 하나를 앉힐 자리가 되는 거예요.
+
+식별자에도 규칙이 있어요. 세션은 `$`, window 는 `@`, pane 은 `%` 접두사를 달고, 명령의 대상은 `session:window.pane` 형태로 지정해요. 스크립트에서 특정 pane 에 명령을 꽂을 때 이 문법을 계속 쓰게 됩니다.
+
+여기서 제일 중요한 게 detach 예요. detach 는 클라이언트만 끊어내는 동작이라, 세션과 그 안에서 돌던 프로그램은 그대로 살아 있어요.<Cite id="tmux-wiki-getting-started" />
+
+<Callout variant="info">
+"Detaching from tmux means that the client exits and detaches from the outside terminal, returning to the shell and leaving the tmux session and any programs inside it running in the background." - tmux Wiki
+
+노트북을 덮든 SSH 가 끊기든 서버 쪽은 신경 쓰지 않아요. 나중에 `tmux attach` 로 다시 붙으면 에이전트가 그동안 뱉어놓은 출력이 그대로 남아 있고요.
+
+</Callout>
+
+<FlowDiagram
+  height={360}
+  caption="클라이언트가 떨어져도 서버 아래 pane 은 계속 돌아요"
+  nodes={[
+    {
+      id: "client",
+      title: "터미널 창",
+      description: "attach 로 붙고 detach 로 떨어져요",
+      x: 0,
+      y: 120,
+    },
+    {
+      id: "server",
+      title: "tmux 서버",
+      description: "별도 프로세스로 따로 살아요",
+      x: 340,
+      y: 120,
+      kind: "accent",
+    },
+    { id: "session", title: "세션", description: "작업 단위 하나", x: 680, y: 120 },
+    {
+      id: "pane1",
+      title: "pane %0",
+      description: "에이전트 A",
+      x: 1000,
+      y: 30,
+      kind: "success",
+    },
+    {
+      id: "pane2",
+      title: "pane %1",
+      description: "에이전트 B",
+      x: 1000,
+      y: 210,
+      kind: "success",
+    },
+  ]}
+  edges={[
+    { from: "client", to: "server", animated: true },
+    { from: "server", to: "session", label: "소유" },
+    { from: "session", to: "pane1" },
+    { from: "session", to: "pane2" },
+  ]}
+/>
+
+## pane 을 나눠도 파일은 하나다
+
+여기가 함정이에요. tmux 는 프로세스와 화면을 나눠주지, 파일을 나눠주지 않아요. pane 을 네 개로 쪼개도 네 셸이 같은 디렉토리를 보고 있어서, 에이전트 넷이 같은 파일에 동시에 손을 댈 수 있죠.
+
+파일 쪽을 맡는 건 git worktree 예요. linked worktree, 그러니까 같은 저장소에 딸린 별도 작업 트리를 만들어 주는 명령이에요. `.git` 디렉토리와 오브젝트 저장소는 공유하면서 `HEAD` 와 인덱스는 worktree 마다 따로 갖거든요. 그래서 한쪽에서 커밋해도 다른 쪽 작업 상태가 흔들리지 않아요.
+
+```bash
+# 새 브랜치를 만들면서 별도 작업 트리로 체크아웃
+git worktree add ../feature-a -b feature-a
+```
+
+같은 브랜치를 두 군데서 열지 못하게 막는 안전장치도 붙어 있어요.<Cite id="git-worktree" />
+
+<Callout variant="warning">
+"By default, add refuses to create a new worktree when \<commit-ish\> is a branch name and is already checked out by another worktree." - Git Docs
+
+에이전트마다 브랜치를 따로 떼야 하는 이유가 여기예요. 굳이 `--force` 로 우회하면 두 에이전트가 같은 브랜치를 밀고 당기게 돼요.
+
+</Callout>
+
+Claude Code 는 이 과정을 플래그 하나로 접어뒀어요. `claude --worktree <이름>` 으로 시작하면 `.claude/worktrees/<이름>/` 에 worktree 를 만들고 `worktree-<이름>` 브랜치를 떼서 그 안에서 세션을 열어요.<Cite id="claude-worktrees" />
+
+```bash
+# 격리된 worktree 를 만들고 그 안에서 세션 시작
+claude --worktree feature-a
+```
+
+단순히 디렉토리만 바꿔주는 게 아니라 격리를 강제하는 체크가 따라붙는다는 점이 중요해요. 메인 체크아웃 경로를 겨냥한 편집이 막히고, `git -C` 나 `GIT_DIR` 로 저장소를 우회하려는 시도도 걸러져요. 정적으로 추적할 수 없는 셸 구문을 막는 체크는 아예 끌 수 없고요.
+
+## 세션 하나를 스크립트로 세우기
+
+구성이 정해졌으면 매번 손으로 pane 을 쪼갤 이유가 없어요. tmux 명령은 전부 셸에서 부를 수 있어서 세션 전체를 스크립트 한 장으로 세울 수 있거든요.
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION=agents
+
+# 이미 세션이 있으면 새로 만들지 않고 붙기만 한다
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  exec tmux attach -t "$SESSION"
+fi
+
+# -d 를 붙이면 현재 터미널에 붙지 않고 백그라운드로 만든다
+tmux new-session -d -s "$SESSION" -n work
+
+for name in feature-a feature-b; do
+  git worktree add "../$name" -b "$name" 2>/dev/null || true
+  tmux split-window -t "$SESSION:work" -c "../$name"
+  tmux send-keys -t "$SESSION:work" -l "claude"
+  tmux send-keys -t "$SESSION:work" Enter
+done
+
+tmux select-layout -t "$SESSION:work" tiled
+tmux attach -t "$SESSION"
+```
+
+첫 줄의 `has-session` 은 세션이 없으면 종료 코드 1, 있으면 0 을 돌려줘요. 그래서 조건문 하나로 스크립트를 몇 번 돌려도 세션이 중복으로 생기지 않게 만들 수 있죠. `new-session -d` 의 `-d` 는 만든 세션에 바로 붙지 않겠다는 뜻이고, `split-window -c` 로 새 pane 의 시작 디렉토리를 worktree 로 지정해요.
+
+마지막 두 줄의 `send-keys` 가 왜 나뉘어 있는지가 실전에서 제일 자주 걸리는 부분이에요.<Cite id="tmux-man" />
+
+<Callout variant="warning">
+"if the string is not recognised as a key, it is sent as a series of characters." - tmux(1)
+
+뒤집어 읽어야 해요. 키 이름으로 인식되면 문자가 아니라 키가 됩니다. 에이전트에 던질 프롬프트에 `Enter` 나 `C-c` 같은 조각이 섞여 있으면 그대로 키 입력으로 튀어요. `-l` 을 붙여 리터럴로 고정하고, 실행할 Enter 는 따로 한 줄 더 보내는 게 안전해요.
+
+</Callout>
+
+## 붙잡아 둘 것과 던져둘 것
+
+pane 에 대화형 세션을 띄우는 건 곁에서 지켜보며 방향을 트는 작업에 맞아요. 반대로 결과만 받으면 되는 일은 pane 을 차지할 이유가 없죠. 이때 쓰는 게 헤드리스 실행, 그러니까 대화 화면 없이 한 번 돌고 끝나는 `-p` 모드예요.
+
+헤드리스는 성공하면 종료 코드 0, 실패하면 0 이 아닌 값을 돌려줘요. 스크립트가 그 값으로 분기할 수 있고, `--output-format json` 으로 세션 ID 를 받아두면 나중에 같은 대화를 이어붙일 수도 있어요.<Cite id="claude-headless" />
+
+```bash
+# 세션 ID 를 받아두고
+sid=$(claude -p "테스트를 돌리고 실패 목록만 정리해줘" \
+  --output-format json | jq -r '.session_id')
+
+# 같은 대화를 이어서 다음 작업을 시킨다
+claude -p "방금 실패한 것 중 첫 번째만 고쳐줘" --resume "$sid"
+```
+
+다만 헤드리스에는 뒷정리가 딸려와요. 대화형 세션은 종료할 때 worktree 를 치울지 물어보는데, `-p` 는 그 프롬프트 자체가 없어서 만들어진 worktree 가 그대로 남거든요.
+
+<Callout variant="tip">
+`-p` 로 돌린 작업이 쌓였다면 정리는 직접 해야 해요.
+
+`git worktree list` 로 남은 걸 확인하고, `git worktree remove <경로>` 로 지웁니다. 디렉토리를 손으로 지워버렸다면 `git worktree prune` 으로 남은 관리 파일까지 걷어내면 돼요.
+
+</Callout>
+
+정리하면 역할이 깔끔하게 갈려요. 프로세스 수명과 화면은 tmux 가, 파일 격리는 git worktree 가, 그 둘을 이어 붙이는 건 `send-keys` 를 쓴 스크립트가 맡습니다. 화면을 나누는 것만으로 파일이 나뉜다고 착각하지 않는 게 이 구성의 전부라고 해도 될 정도예요.
+
+병렬로 뽑아낸 브랜치들이 쌓이면 다음 고민은 리뷰 쪽으로 넘어가요. 한꺼번에 올라온 변경을 어떻게 쪼개 보낼지는 [PR 을 쌓아 올리는 방법](/posts/gh-stack-stacked-prs) 에서 이어집니다.
+
+<FAQ
+  items={[
+    {
+      question: "tmux 세션이 살아 있으면 에이전트도 계속 돌아가나요?",
+      answer:
+        "네. detach 는 클라이언트만 종료하고 세션 안의 프로그램은 백그라운드에서 그대로 실행됩니다. 터미널을 닫거나 SSH 가 끊겨도 tmux 서버 프로세스가 살아 있는 한 pane 안의 작업은 이어져요. 다만 서버가 죽는 재부팅 같은 상황에서는 세션도 함께 사라집니다.",
+    },
+    {
+      question: "worktree 를 여러 개 만들면 저장소가 그만큼 무거워지나요?",
+      answer:
+        "저장소 전체가 복제되지는 않아요. linked worktree 는 원본의 .git 디렉토리와 오브젝트 저장소, 브랜치와 태그를 공유하고 HEAD 와 인덱스 같은 작업 상태만 따로 갖습니다. 다만 각 worktree 는 새 체크아웃이라 작업 파일은 따로 놓이고, 의존성 설치는 worktree 마다 다시 해야 해요.",
+    },
+  ]}
+/>
+
+<References
+  items={[
+    {
+      id: "tmux-man",
+      title: "tmux(1) - OpenBSD manual pages",
+      href: "https://man.openbsd.org/tmux.1",
+      description:
+        "서버와 클라이언트 구조, session/window/pane 계층과 식별자 규칙, send-keys 와 new-session 의 동작",
+    },
+    {
+      id: "tmux-wiki-getting-started",
+      title: "tmux Wiki - Getting Started",
+      href: "https://github.com/tmux/tmux/wiki/Getting-Started",
+      description: "detach 와 attach 의 정확한 동작, 세션이 백그라운드에 남는 이유",
+    },
+    {
+      id: "git-worktree",
+      title: "Git - git-worktree Documentation",
+      href: "https://git-scm.com/docs/git-worktree",
+      description:
+        "linked worktree 의 정의, 공유되는 것과 따로 가는 것, 같은 브랜치 중복 체크아웃 거부 동작",
+    },
+    {
+      id: "claude-worktrees",
+      title: "Claude Code Docs - Run parallel sessions with worktrees",
+      href: "https://code.claude.com/docs/en/worktrees",
+      description: "claude --worktree 의 기본 경로와 브랜치 규칙, 격리 강제 체크",
+    },
+    {
+      id: "claude-headless",
+      title: "Claude Code Docs - Run Claude Code programmatically",
+      href: "https://code.claude.com/docs/en/headless",
+      description: "-p 비대화형 모드의 종료 코드, output-format json 과 resume 로 세션 잇기",
+    },
+    {
+      id: "claude-common-workflows",
+      title: "Claude Code Docs - Common workflows",
+      href: "https://code.claude.com/docs/en/common-workflows",
+      description: "병렬 세션의 목적을 수정 충돌 방지로 정의한 부분",
+    },
+  ]}
+/>
